@@ -1,0 +1,33 @@
+# Build results
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+*.user
+*.userosscache
+*.suo
+*.cache
+*.nupkg
+*.snupkg
+
+# Visual Studio / Rider
+.vs/
+.idea/
+*.DotSettings.user
+
+# Godot 4
+.godot/
+*.translation
+export_presets.cfg
+# Uncomment if you store export credentials in this file:
+# export_credentials.cfg
+
+# OS / editor junk
+Thumbs.db
+Desktop.ini
+*.swp
+*~
+
+# Local secrets: ignore everything under .env/ except the tracked example
+.env/*
+!.env/.env.example

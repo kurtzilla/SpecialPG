@@ -1,0 +1,32 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build Core",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["build", "${workspaceFolder}/SpecialPG.slnx", "-c", "Debug"],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "silent",
+        "clear": true
+      },
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "Godot: run project (replace godotPath in task)",
+      "type": "shell",
+      "command": "\"C:\\Program Files\\Godot\\Godot_v4.x-stable_win64_console.exe\"",
+      "args": ["--path", "${workspaceFolder}/src/Godot"],
+      "group": "none",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": []
+    }
+  ]
+}

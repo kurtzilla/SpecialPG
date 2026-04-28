@@ -1,0 +1,6 @@
+<Solution>
+  <Folder Name="/src/" />
+  <Folder Name="/src/Core/">
+    <Project Path="src/Core/SpecialPG.Core.csproj" />
+  </Folder>
+</Solution>
