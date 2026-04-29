@@ -1,13 +1,13 @@
-[gd_scene load_steps=2 format=3 uid="uid://dgy47lkwldq6d"]
+[gd_scene format=3 uid="uid://dgy47lkwldq6d"]
 
-[ext_resource type="Script" path="res://GameRoot.cs" id="1_root"]
+[ext_resource type="Script" uid="uid://bxuqrj20nal5m" path="res://GameRoot.cs" id="1_root"]
 
-[node name="GameRoot" type="Node2D"]
+[node name="GameRoot" type="Node2D" unique_id=518975863]
 script = ExtResource("1_root")
 
-[node name="CanvasLayer" type="CanvasLayer" parent="."]
+[node name="CanvasLayer" type="CanvasLayer" parent="." unique_id=1630270523]
 
-[node name="Backdrop" type="ColorRect" parent="CanvasLayer"]
+[node name="Backdrop" type="ColorRect" parent="CanvasLayer" unique_id=1963192035]
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
@@ -15,7 +15,7 @@ grow_horizontal = 2
 grow_vertical = 2
 color = Color(0.118, 0.137, 0.18, 0.2)
 
-[node name="BootLabel" type="Label" parent="CanvasLayer"]
+[node name="BootLabel" type="Label" parent="CanvasLayer" unique_id=1083408722]
 anchors_preset = 8
 anchor_left = 0.5
 anchor_top = 0.5
