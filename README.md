@@ -1,6 +1,6 @@
 # SpecialPG
 
-Isometric game engine (Core + Shell). Design rules live in [`.cursor/.cursorrules.md`](.cursor/.cursorrules.md); coordinates and floor rules in [`docs/architecture.md`](docs/architecture.md). **Run / debug workflow** (no-picker F5 attach): [`docs/debugging.md`](docs/debugging.md).
+Grid-based game (Core + Shell) using the **melange view** for Shell rendering—see [`docs/melange-view-pattern.md`](docs/melange-view-pattern.md). Design rules: [`.cursor/.cursorrules.md`](.cursor/.cursorrules.md); coordinates and floors: [`docs/architecture.md`](docs/architecture.md). **Run / debug workflow** (no-picker F5 attach): [`docs/debugging.md`](docs/debugging.md).
 
 ## Prerequisites
 

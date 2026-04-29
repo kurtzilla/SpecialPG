@@ -2,6 +2,8 @@
 
 This document is the **source of truth** for coordinate conventions, floor slicing, and map connectivity. If game logic in `src/Core` changes any of these rules, update this file first (see `.cursor/.cursorrules.md`).
 
+**Rendering direction:** Shell presentation follows the **melange view** (orthographic top-down + tall / three-quarter readability). See [melange-view-pattern.md](melange-view-pattern.md), [visual-direction-guide.md](visual-direction-guide.md), and [view-rendering-discussion.md](view-rendering-discussion.md).
+
 ## Core + Shell
 
 - **`src/Core`**: Pure C# using the .NET Base Class Library only. No Godot types or assemblies.
@@ -21,7 +23,7 @@ The world is a **3D integer grid**. All logical positions use the same `(X, Y, Z
 
 **Tile identity**: A floor cell is addressed by `(X, Y)` **on** floor `Z`. Tile *payload* (e.g. `TileData`) does not repeat `(X, Y, Z)` if the map storage already keys cells by position.
 
-**Screen space**: Isometric projection, camera, and sprites live in the Shell only. Core stays in grid/world space.
+**Screen space**: Camera, projection, sprites/meshes, and Core→screen mapping live in the Shell only (melange view—see linked docs above). Core stays in grid/world space.
 
 ## Active Floor rendering rule
 
