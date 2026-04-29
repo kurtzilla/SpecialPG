@@ -17,18 +17,6 @@
       "problemMatcher": "$msCompile"
     },
     {
-      "label": "Godot: Run Project",
-      "type": "shell",
-      "command": "godot", 
-      "args": ["--path", "${workspaceFolder}/src/Godot"],
-      "group": "none",
-      "presentation": {
-        "reveal": "always",
-        "panel": "dedicated"
-      },
-      "problemMatcher": []
-    },
-    {
       "label": "Godot: Run Project (Detached)",
       "type": "shell",
       "command": "powershell",
@@ -69,12 +57,31 @@
       "problemMatcher": []
     },
     {
+      "label": "Godot: Stabilize + Re-resolve PID",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        "Start-Sleep -Milliseconds 1200; & '${workspaceFolder:SpecialPG}/.scripts/ResolveGodotPid.ps1' -WorkspaceRoot '${workspaceFolder:SpecialPG}' -ConfigName 'Godot: Run + Auto Attach (No Picker)' -TimeoutSeconds 8 -SettleMilliseconds 400"
+      ],
+      "group": "none",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": []
+    },
+    {
       "label": "Godot: Prepare No-Picker Attach",
       "dependsOrder": "sequence",
       "dependsOn": [
         "build solution (Core + Shell)",
         "Godot: Run Project (Detached)",
-        "Godot: Resolve PID (No Picker)"
+        "Godot: Resolve PID (No Picker)",
+        "Godot: Stabilize + Re-resolve PID"
       ],
       "problemMatcher": []
     },

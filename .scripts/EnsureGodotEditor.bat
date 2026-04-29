@@ -3,7 +3,7 @@ setlocal EnableExtensions EnableDelayedExpansion
 
 rem =============================================================================
 rem  Start Godot editor for this repo if no matching process is running.
-rem  Used by VS Code/Cursor "folder open" task — does not launch Cursor.
+rem  Used as a manual helper task/script; does not launch Cursor.
 rem
 rem  Detection: prefer gdvm default C# editor basename (matches editor + console
 rem  exe for that version). If gdvm is unavailable, fall back to any Godot_*.
@@ -32,8 +32,6 @@ if errorlevel 1 (
   ) else (
     powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath 'godot' -ArgumentList '--path','%GODOT_PROJECT%','--editor' | Out-Null"
   )
-  rem Godot / DebugAttachService may steal focus; retry bringing Cursor forward.
-  powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0FocusCursor.ps1"
 ) else (
   echo [EnsureGodotEditor] Godot already running; skipping editor start.
 )

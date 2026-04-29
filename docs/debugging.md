@@ -17,31 +17,25 @@ Default **F5** uses **Godot: Run + Auto Attach (No Picker)**:
 3. Resolve the correct Godot game PID for this workspace (`--path .../src/Godot`)
 4. Attach `coreclr` debugger to that PID automatically
 
-This avoids intermittent `coreclr` launch-handshake failures (for example `configurationDone: 0x80004005`) and avoids manual process selection on each run.
+This avoids intermittent `coreclr` attach-handshake failures (for example `configurationDone` errors) and avoids manual process selection on each run.
 
-If auto-attach cannot resolve a PID, use fallback profile **Godot: Attach after run**.
+If auto-attach cannot resolve a PID, use fallback profile **.NET Attach (Godot)**.
 
-## Optional launch mode (experimental)
+**Run Task → SpecialPG: Ensure Godot editor** uses the configured gdvm/godot path to start editor only when needed.
 
-The **Godot: Launch game (Experimental)** configuration in [`.vscode/launch.json`](../.vscode/launch.json) runs a **direct executable path** to the installed Godot .NET binary (not the `gdvm` shim under `.gdvm/bin`).
+## GDScript LSP with non-headless editor TCP
 
-This avoids Windows `coreclr` launch edge cases where shim resolution can fail during debugger initialization.
+This workspace keeps **`godotTools.lsp.headless = false`** in [`SpecialPG.code-workspace`](../SpecialPG.code-workspace), so Godot Tools connects to the editor TCP endpoint (**127.0.0.1:6005**).
 
-If your `gdvm` version changes, refresh the configured path to match `gdvm show --csharp` output.
+If Godot editor is not running yet, Cursor can show a startup warning like **\"Couldn't connect to the GDScript language server at 127.0.0.1:6005\"**. This is expected in non-headless mode and clears once editor/LSP is up.
 
-**Run Task → Godot: Run Project** uses the `godot` command on your shell `PATH`.
+Startup is manual-only to avoid duplicate editor launches; there is no folder-open autorun task in the final workflow.
 
-## GDScript LSP without the Godot editor (headless)
-
-This repo’s [`.vscode/settings.json`](../.vscode/settings.json) enables **`godotTools.lsp.headless`** so **Godot Tools** runs the GDScript language server as a **child process** instead of connecting to the editor on TCP (**6005** / **6008**). You do **not** need the Godot editor open for GDScript completion/diagnostics in Cursor when this works.
-
-**`godotTools.editorPath.godot4`** is set to **`godot`** so it resolves from your **`PATH`** (e.g. **gdvm** or another shim that exposes `godot` on `PATH`). That matches the Godot Tools description: you can use a bare command name when the correct Godot 4 binary is on `PATH`. If headless spawn fails, verify **Cursor** was started in an environment where `godot` is on `PATH` (same as your terminal after `gdvm use`), or change that setting to a full path or `${env:…}`.
-
-Experimental launch mode in [`launch.json`](../.vscode/launch.json) uses an absolute executable path because `coreclr` launch is more reliable this way on Windows than through shell shims.
+**`godotTools.editorPath.godot4`** points to the installed Godot .NET executable so editor launch and tooling resolve a stable binary.
 
 After changing these settings, use **Developer: Reload Window** once so Godot Tools picks them up.
 
-If headless fails (spawn errors, wrong version), confirm the resolved `godot` is the **.NET** Godot 4 build that matches [`src/Godot/project.godot`](../src/Godot/project.godot) (`config/features` C# / version line).
+If LSP does not connect after editor startup, confirm the selected Godot binary is the **.NET** Godot 4 build that matches [`src/Godot/project.godot`](../src/Godot/project.godot) (`config/features` C# / version line).
 
 ## Too many Godot processes
 
@@ -63,23 +57,13 @@ In the attach picker or Task Manager, check the arguments:
 
 **F5 launch** or **Play** starts a **game** process; an **editor** can still be open. You may legitimately see **more than one** Godot row while debugging—that is not always a bug. Use the **full command line** in the picker to choose the process you mean (game vs editor).
 
-## Optional: open Cursor after ensuring Godot is running (Windows)
+## Attach profiles
 
-[`.scripts/OpenCursorWithGodot.bat`](../.scripts/OpenCursorWithGodot.bat) is a local workaround: if **no** process whose image name contains `Godot_` is running, it starts the **Godot editor** with `--path` to [`src/Godot`](../src/Godot) and `--editor`, waits a couple of seconds, then launches **Cursor** on the repo root.
-
-- Set **`GODOT_PATH`** to a full `.exe` before running the batch if `godot` is not on `PATH` when double-clicking (common with **gdvm** unless your shell profile runs first).
-- Edit the **`CURSOR_EXE`** line in the batch if Cursor is not under `%LOCALAPPDATA%\Programs\cursor\`.
-- Detection is **coarse** (any Godot counts); see comments in the script.
-
-## Launch vs attach
-
-| | **Launch** (`Godot: Launch game (Experimental)`) | **Attach** (`Godot: Run + Auto Attach (No Picker)` / `Godot: Attach after run` / `.NET Attach (Godot)`) |
-|---|--------------------------------------------------------|-------------------------------------|
-| Who starts Godot? | **Cursor** starts the configured absolute Godot .NET executable with `--path` to this repo’s Godot project. | **You** start Godot (editor **Play**, or **Godot: Run Project** task). |
-| Need editor open first? | **No** — a game window starts directly (main scene). | Auto profile starts one for you; manual attach requires an already-running process. |
-| Good for | Quick “run like a player” + breakpoints from the IDE. | Reliable debugging when launch mode is flaky; auto profile is one-key F5. |
-
-Neither mode replaces the other: use **launch** when you want **F5 to autostart** the game; use **attach** when Godot already owns the run.
+| | **No-picker attach** (`Godot: Run + Auto Attach (No Picker)`) | **Manual attach** (`.NET Attach (Godot)`) |
+|---|-------------------------------------|-------------------------------------|
+| Who starts Godot? | F5 prelaunch tasks build + run detached + resolve PID automatically. | You start Godot/editor, then pick process manually. |
+| Picker prompt | No | Yes |
+| Good for | Daily one-key debug flow | Troubleshooting or unusual process states |
 
 ## Why attach is often recommended for editor work
 

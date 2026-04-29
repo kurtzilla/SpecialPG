@@ -1,14 +1,14 @@
 # SpecialPG
 
-Isometric game engine (Core + Shell). Design rules live in [`.cursor/.cursorrules.md`](.cursor/.cursorrules.md); coordinates and floor rules in [`docs/architecture.md`](docs/architecture.md). **Run / debug workflow** (F5, launch vs attach): [`docs/debugging.md`](docs/debugging.md). Optional Windows shortcut: [`.scripts/OpenCursorWithGodot.bat`](.scripts/OpenCursorWithGodot.bat).
+Isometric game engine (Core + Shell). Design rules live in [`.cursor/.cursorrules.md`](.cursor/.cursorrules.md); coordinates and floor rules in [`docs/architecture.md`](docs/architecture.md). **Run / debug workflow** (no-picker F5 attach): [`docs/debugging.md`](docs/debugging.md).
 
 ## Prerequisites
 
 - [.NET 8 SDK](https://dotnet.microsoft.com/download)
 - [Godot 4.x](https://godotengine.org/download) (.NET / C# build)
-- **Godot on `PATH`** (for tasks): the **Godot: Run Project** task runs the `godot` command. Add your install folder to PATH, or on Windows use a `godot.cmd` shim to `Godot_v4.x-stable_mono_win64_console.exe`.
+- **Godot on `PATH`** (for tasks): detached startup/debug tasks run the `godot` command. Add your install folder to PATH, or on Windows use a `gdvm` shim.
 - **No-picker F5 attach**: default debug profile updates its target PID via [`.scripts/ResolveGodotPid.ps1`](.scripts/ResolveGodotPid.ps1), then attaches automatically.
-- **Headless GDScript LSP**: [`.vscode/settings.json`](.vscode/settings.json) uses **`godot`** on `PATH` for **`godotTools.editorPath.godot4`** (works with **gdvm**). Cursor must see the same `PATH` as your shell where `godot` works. Details: [`docs/debugging.md`](docs/debugging.md).
+- **Non-headless GDScript LSP**: workspace config keeps `godotTools.lsp.headless = false`, so Godot editor must be running for TCP LSP on `127.0.0.1:6005`.
 
 ## Build (Core + Shell)
 
@@ -24,7 +24,7 @@ If `dotnet build` fails on the Godot project because `SpecialPG.pdb` is locked, 
 
 ## Run the Godot Shell
 
-**Terminal → Run Task… → Godot: Run Project** runs `godot --path` to [`src/Godot`](src/Godot).
+Use **Terminal → Run Task… → SpecialPG: Ensure Godot editor** to ensure the editor is running for [`src/Godot`](src/Godot) when needed. This is manual-only (no folder-open autorun).
 
 ## Debug C#
 
@@ -36,9 +36,8 @@ Requires the **C#** (or C# Dev Kit) extension for `coreclr` debugging.
 2. Cursor builds, starts Godot, resolves the game PID, and attaches automatically.
 3. C# breakpoints hit without process picker prompts.
 
-Fallback profiles remain available:
-- **Godot: Attach after run** (manual process picker)
-- **Godot: Launch game (Experimental)** (direct launch mode)
+Fallback profile remains available:
+- **.NET Attach (Godot)** (manual process picker)
 
 For launch-vs-attach context and hot-reload notes, read **[docs/debugging.md](docs/debugging.md)**.
 
