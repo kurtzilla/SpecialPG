@@ -3,4 +3,7 @@
   <Folder Name="/src/Core/">
     <Project Path="src/Core/SpecialPG.Core.csproj" />
   </Folder>
+  <Folder Name="/src/Godot/">
+    <Project Path="src/Godot/SpecialPG.csproj" />
+  </Folder>
 </Solution>

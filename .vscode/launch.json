@@ -1,11 +1,44 @@
 {
-  "version": "0.2.0",
-  "configurations": [
-    {
-      "name": ".NET Attach (Godot)",
-      "type": "coreclr",
-      "request": "attach",
-      "processId": "2216"
-    }
-  ]
+    "version":  "0.2.0",
+    "configurations":  [
+                           {
+                               "name":  "Godot: Run + Auto Attach (No Picker)",
+                               "type":  "coreclr",
+                               "request":  "attach",
+                               "preLaunchTask":  "Godot: Prepare No-Picker Attach",
+                               "processId":  16792,
+                               "justMyCode":  false
+                           },
+                           {
+                               "name":  "Godot: Attach after run",
+                               "type":  "coreclr",
+                               "request":  "attach",
+                               "preLaunchTask":  "Godot: Run Project",
+                               "processId":  "${command:pickProcess}",
+                               "justMyCode":  false
+                           },
+                           {
+                               "name":  ".NET Attach (Godot)",
+                               "type":  "coreclr",
+                               "request":  "attach",
+                               "processId":  "${command:pickProcess}",
+                               "justMyCode":  false
+                           },
+                           {
+                               "name":  "Godot: Launch game (Experimental)",
+                               "type":  "coreclr",
+                               "request":  "launch",
+                               "preLaunchTask":  "build solution (Core + Shell)",
+                               "program":  "C:\\Users\\Dev\\.gdvm\\installs\\4.6.2-stable-csharp\\Godot_v4.6.2-stable_mono_win64.exe",
+                               "args":  [
+                                            "--path",
+                                            "${workspaceFolder:SpecialPG}/src/Godot"
+                                        ],
+                               "cwd":  "${workspaceFolder:SpecialPG}",
+                               "console":  "internalConsole",
+                               "internalConsoleOptions":  "openOnSessionStart",
+                               "stopAtEntry":  false,
+                               "justMyCode":  false
+                           }
+                       ]
 }

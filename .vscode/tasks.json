@@ -2,7 +2,7 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "build",
+      "label": "build solution (Core + Shell)",
       "type": "process",
       "command": "dotnet",
       "args": ["build", "${workspaceFolder}/SpecialPG.slnx", "-c", "Debug"],
@@ -25,6 +25,67 @@
       "presentation": {
         "reveal": "always",
         "panel": "dedicated"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Godot: Run Project (Detached)",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        "Start-Process -FilePath godot -ArgumentList '--path','${workspaceFolder:SpecialPG}/src/Godot' | Out-Null"
+      ],
+      "group": "none",
+      "presentation": {
+        "reveal": "silent",
+        "panel": "dedicated"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Godot: Resolve PID (No Picker)",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder:SpecialPG}/.scripts/ResolveGodotPid.ps1",
+        "-WorkspaceRoot",
+        "${workspaceFolder:SpecialPG}",
+        "-ConfigName",
+        "Godot: Run + Auto Attach (No Picker)"
+      ],
+      "group": "none",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Godot: Prepare No-Picker Attach",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "build solution (Core + Shell)",
+        "Godot: Run Project (Detached)",
+        "Godot: Resolve PID (No Picker)"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "SpecialPG: Ensure Godot editor",
+      "type": "shell",
+      "command": "cmd /c \"${workspaceFolder}/.scripts/EnsureGodotEditor.bat\"",
+      "presentation": {
+        "reveal": "silent",
+        "panel": "shared",
+        "showReuseMessage": false
       },
       "problemMatcher": []
     }

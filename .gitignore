@@ -18,6 +18,10 @@
 # Godot 4
 .godot/
 *.translation
+
+# Addon / tool build outputs (prefer building from source; do not vendor unless intentional)
+**/addons/**/bin/
+**/addons/**/obj/
 export_presets.cfg
 # Uncomment if you store export credentials in this file:
 # export_credentials.cfg

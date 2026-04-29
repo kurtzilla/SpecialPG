@@ -1,4 +1,5 @@
 {
+  "task.allowAutomaticTasks": "folder",
   "dotrush.roslyn.projectOrSolutionFiles": [
     "d:\\source\\SpecialPG\\SpecialPG.slnx"
   ]
