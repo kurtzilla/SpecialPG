@@ -22,7 +22,10 @@ Or open the repo in VS Code / Cursor and use the default **build Core** task.
 
 ## Debug C#
 
-Use **Run and Debug → .NET Core Attach** and pick the running Godot (or `dotnet`) process after starting the game from the editor or the Godot task.
+1. Start Godot and **Play** your project (or run the **Godot: Run Project** task).
+2. **Run and Debug → Attach to Godot** — when prompted, choose the **Godot .NET** process (official builds look like `Godot_v4.x-stable_mono_win64.exe`, not `Godot.NET.exe`).
+
+Requires the **C#** (or C# Dev Kit) extension for `coreclr` debugging.
 
 ## Environment files
 

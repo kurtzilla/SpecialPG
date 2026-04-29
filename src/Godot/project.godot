@@ -1,0 +1,36 @@
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
+
+config_version=5
+
+[application]
+
+config/name="SpecialPG"
+run/main_scene="uid://dgy47lkwldq6d"
+config/features=PackedStringArray("4.6", "C#", "Forward Plus")
+config/icon="res://icon.svg"
+
+[autoload]
+
+DebugWait="res://addons/external_debug_attach/DebugWaitAutoload.gd"
+
+[dotnet]
+
+project/assembly_name="SpecialPG"
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/external_debug_attach/plugin.cfg")
+
+[physics]
+
+3d/physics_engine="Jolt Physics"
+
+[rendering]
+
+rendering_device/driver.windows="d3d12"
