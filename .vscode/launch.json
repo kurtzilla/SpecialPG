@@ -6,7 +6,7 @@
                                "type":  "coreclr",
                                "request":  "attach",
                                "preLaunchTask":  "Godot: Prepare No-Picker Attach",
-                               "processId":  19916,
+                               "processId":  35308,
                                "justMyCode":  false
                            },
                            {

@@ -9,7 +9,7 @@ extends Node
 @export var max_wait_seconds: float = 5.0
 
 var _wait_label: Label
-var _start_time: float
+var _elapsed_seconds: float = 0.0
 
 func _ready() -> void:
 	# Only wait if running from editor (debug mode)
@@ -23,13 +23,14 @@ func _ready() -> void:
 	
 	# Show a visual indicator
 	_create_wait_overlay()
-	_start_time = Time.get_unix_time_from_system()
+	_elapsed_seconds = 0.0
 	
 	# Use a timer instead of blocking
 	set_process(true)
 
 func _process(delta: float) -> void:
-	var elapsed := Time.get_unix_time_from_system() - _start_time
+	_elapsed_seconds += delta
+	var elapsed := _elapsed_seconds
 	
 	# Check for timeout
 	if elapsed >= max_wait_seconds:
@@ -48,6 +49,8 @@ func _process(delta: float) -> void:
 		_cleanup()
 
 func _create_wait_overlay() -> void:
+	_cleanup_overlay_only()
+
 	# Create a simple overlay to indicate waiting
 	var overlay := ColorRect.new()
 	overlay.color = Color(0, 0, 0, 0.7)
@@ -63,16 +66,18 @@ func _create_wait_overlay() -> void:
 	
 	var canvas_layer := CanvasLayer.new()
 	canvas_layer.layer = 100
+	canvas_layer.name = "DebugWaitOverlay"
 	canvas_layer.add_child(overlay)
 	canvas_layer.add_child(_wait_label)
 	add_child(canvas_layer)
 
 func _cleanup() -> void:
 	set_process(false)
-	
-	# Remove overlay
-	for child in get_children():
-		if child is CanvasLayer:
-			child.queue_free()
+	_cleanup_overlay_only()
 	
 	print("[DebugWait] Game resumed")
+
+func _cleanup_overlay_only() -> void:
+	for child in get_children():
+		if child is CanvasLayer and child.name == "DebugWaitOverlay":
+			child.queue_free()
