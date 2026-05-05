@@ -153,8 +153,16 @@ public sealed class WorldState
             return;
         }
 
-        ActorX = Math.Clamp(x, floor.MinX, floor.MinX + floor.Width - 1);
-        ActorY = Math.Clamp(y, floor.MinY, floor.MinY + floor.Height - 1);
+        if (floor.IsBounded)
+        {
+            ActorX = Math.Clamp(x, floor.MinX, floor.MinX + floor.Width - 1);
+            ActorY = Math.Clamp(y, floor.MinY, floor.MinY + floor.Height - 1);
+        }
+        else
+        {
+            ActorX = x;
+            ActorY = y;
+        }
     }
 
     private void ClampActorToFloor()
@@ -163,6 +171,9 @@ public sealed class WorldState
         {
             return;
         }
+
+        if (!floor.IsBounded)
+            return;
 
         ActorX = Math.Clamp(ActorX, floor.MinX, floor.MinX + floor.Width - 1);
         ActorY = Math.Clamp(ActorY, floor.MinY, floor.MinY + floor.Height - 1);

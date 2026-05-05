@@ -474,6 +474,14 @@ text = "Quit"
 layout_mode = 2
 text = "Resume"
 
+[node name="PauseMapGeneratorButton" type="Button" parent="ShellUi/ShellHudRoot/PauseMenuRoot/Center/MenuPanel/Margin/VBox"]
+layout_mode = 2
+text = "Map generator…"
+
+[node name="PauseMapEditorButton" type="Button" parent="ShellUi/ShellHudRoot/PauseMenuRoot/Center/MenuPanel/Margin/VBox"]
+layout_mode = 2
+text = "Map editor…"
+
 [node name="GridMap" type="Node2D" parent="."]
 script = ExtResource("1_root")
 

@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using Godot;
+using SpecialPG.Core.Maps;
 
 namespace SpecialPG;
 
@@ -64,9 +65,19 @@ public partial class FogOverlayRenderer : Node2D
     private ImageTexture? _whiteTexture;
     private ImageTexture? _defaultMaskTexture;
     private Rect2 _boardRect;
+    private int _boardWidthCells;
+    private int _boardHeightCells;
+    private int _floorMinX;
+    private int _floorMinY;
     private int _pixelsPerCell = 8;
     private int _activeFloorZ = int.MinValue;
     private bool _gpuEnabled = true;
+    private bool _fogSlidingMaskEnabled = true;
+    private bool _largeMapMode;
+    private int _maskWindowCells = 256;
+    private int _recenterMarginCells = 48;
+    private readonly Dictionary<int, Vector2I> _maskOriginGlobalByFloor = new();
+    private readonly Dictionary<int, Vector2I> _maskAllocatedCellsByFloor = new();
     private float _revealLerpSpeed = 10.0f;
     private float _brushHardCoreRatio = 0.72f;
     private float _brushFeatherExponent = 1.40f;
@@ -104,20 +115,45 @@ public partial class FogOverlayRenderer : Node2D
 
     public void ConfigureBoard(Vector2 boardOriginTopLeft, int floorWidthCells, int floorHeightCells, float cellSizePx, int pixelsPerCell)
     {
+        _boardWidthCells = floorWidthCells;
+        _boardHeightCells = floorHeightCells;
         _boardRect = new Rect2(boardOriginTopLeft, new Vector2(floorWidthCells * cellSizePx, floorHeightCells * cellSizePx));
         _pixelsPerCell = Mathf.Clamp(pixelsPerCell, 1, 32);
     }
 
+    /// <summary>Sliding window fog mask: enabled when <paramref name="slidingMaskEnabled"/> and (large map mode or map area &gt;= 4M cells).</summary>
+    public void SetSlidingFogMode(bool slidingMaskEnabled, bool largeMapMode, int maskWindowCells, int recenterMarginCells)
+    {
+        _fogSlidingMaskEnabled = slidingMaskEnabled;
+        _largeMapMode = largeMapMode;
+        _maskWindowCells = Mathf.Clamp(maskWindowCells, 32, 2048);
+        _recenterMarginCells = Mathf.Clamp(recenterMarginCells, 8, Math.Max(8, _maskWindowCells / 2));
+    }
+
     public void EnsureFloorMask(int floorZ, int floorMinX, int floorMinY, int floorWidthCells, int floorHeightCells)
     {
+        _floorMinX = floorMinX;
+        _floorMinY = floorMinY;
         _floorCellMins[floorZ] = new Vector2I(floorMinX, floorMinY);
         _floorCellSizes[floorZ] = new Vector2I(floorWidthCells, floorHeightCells);
-        var maskWidth = Math.Max(1, floorWidthCells * _pixelsPerCell);
-        var maskHeight = Math.Max(1, floorHeightCells * _pixelsPerCell);
+
+        var useSlidingAlloc = _fogSlidingMaskEnabled &&
+                              (_largeMapMode || (long)floorWidthCells * floorHeightCells >= 4_000_000L);
+        var maskWCells = useSlidingAlloc ? Mathf.Min(_maskWindowCells, floorWidthCells) : floorWidthCells;
+        var maskHCells = useSlidingAlloc ? Mathf.Min(_maskWindowCells, floorHeightCells) : floorHeightCells;
+
+        _maskAllocatedCellsByFloor[floorZ] = new Vector2I(maskWCells, maskHCells);
+
+        if (!useSlidingAlloc)
+            _maskOriginGlobalByFloor.Remove(floorZ);
+
+        var maskWidth = Math.Max(1, maskWCells * _pixelsPerCell);
+        var maskHeight = Math.Max(1, maskHCells * _pixelsPerCell);
 
         if (_masksByFloorZ.TryGetValue(floorZ, out var existing) &&
             existing.Width == maskWidth && existing.Height == maskHeight)
         {
+            PushSlidingShaderUniforms(useSlidingAlloc, floorMinX, floorMinY, floorWidthCells, floorHeightCells, floorZ);
             return;
         }
 
@@ -127,11 +163,129 @@ public partial class FogOverlayRenderer : Node2D
         displayImage.Fill(new Color(0f, 0f, 0f, 0f));
         var displayTexture = ImageTexture.CreateFromImage(displayImage);
         _masksByFloorZ[floorZ] = new FloorMask(targetImage, displayImage, displayTexture, maskWidth, maskHeight);
+        _maskOriginGlobalByFloor.Remove(floorZ);
+
+        PushSlidingShaderUniforms(useSlidingAlloc, floorMinX, floorMinY, floorWidthCells, floorHeightCells, floorZ);
 
         if (floorZ == _activeFloorZ)
         {
             _material?.SetShaderParameter("fog_mask", displayTexture);
             QueueRedraw();
+        }
+    }
+
+    /// <summary>Re-center sliding mask when the anchor nears the edge; refill from Core fog state.</summary>
+    public void SyncSlidingMaskAnchor(int floorZ, int anchorGlobalX, int anchorGlobalY, WorldState world, int playerId = 0)
+    {
+        if (!_fogSlidingMaskEnabled || !_masksByFloorZ.ContainsKey(floorZ) || !_floorCellSizes.TryGetValue(floorZ, out var fsize))
+            return;
+
+        if (!_largeMapMode && (long)fsize.X * fsize.Y < 4_000_000L)
+            return;
+
+        if (!_maskAllocatedCellsByFloor.TryGetValue(floorZ, out var mcells))
+            return;
+
+        var floorMin = _floorCellMins[floorZ];
+        var mw = mcells.X;
+        var mh = mcells.Y;
+
+        var needInit = !_maskOriginGlobalByFloor.TryGetValue(floorZ, out var origin);
+        var ox = needInit ? anchorGlobalX - mw / 2 : origin.X;
+        var oy = needInit ? anchorGlobalY - mh / 2 : origin.Y;
+
+        ox = Mathf.Clamp(ox, floorMin.X, floorMin.X + Mathf.Max(0, fsize.X - mw));
+        oy = Mathf.Clamp(oy, floorMin.Y, floorMin.Y + Mathf.Max(0, fsize.Y - mh));
+
+        if (!needInit)
+        {
+            var left = ox + _recenterMarginCells;
+            var right = ox + mw - 1 - _recenterMarginCells;
+            var bottom = oy + _recenterMarginCells;
+            var top = oy + mh - 1 - _recenterMarginCells;
+            if (anchorGlobalX >= left && anchorGlobalX <= right && anchorGlobalY >= bottom && anchorGlobalY <= top)
+            {
+                PushSlidingShaderUniforms(true, floorMin.X, floorMin.Y, fsize.X, fsize.Y, floorZ);
+                return;
+            }
+
+            ox = Mathf.Clamp(anchorGlobalX - mw / 2, floorMin.X, floorMin.X + Mathf.Max(0, fsize.X - mw));
+            oy = Mathf.Clamp(anchorGlobalY - mh / 2, floorMin.Y, floorMin.Y + Mathf.Max(0, fsize.Y - mh));
+        }
+
+        _maskOriginGlobalByFloor[floorZ] = new Vector2I(ox, oy);
+        RestampMaskFromFog(world, playerId, floorZ);
+        PushSlidingShaderUniforms(true, floorMin.X, floorMin.Y, fsize.X, fsize.Y, floorZ);
+    }
+
+    private void RestampMaskFromFog(WorldState world, int playerId, int floorZ)
+    {
+        if (!_masksByFloorZ.TryGetValue(floorZ, out var floorMask) ||
+            !_maskOriginGlobalByFloor.TryGetValue(floorZ, out var org) ||
+            !_maskAllocatedCellsByFloor.TryGetValue(floorZ, out var mc) ||
+            !_floorCellMins.TryGetValue(floorZ, out var fmin) ||
+            !_floorCellSizes.TryGetValue(floorZ, out var fsz))
+        {
+            return;
+        }
+
+        floorMask.TargetImage.Fill(new Color(0f, 0f, 0f, 0f));
+        floorMask.DisplayImage.Fill(new Color(0f, 0f, 0f, 0f));
+        floorMask.ClearDirtyRect();
+
+        var ppc = _pixelsPerCell;
+        for (var gy = org.Y; gy < org.Y + mc.Y; gy++)
+        {
+            for (var gx = org.X; gx < org.X + mc.X; gx++)
+            {
+                if (!world.Fog.IsRevealed(playerId, floorZ, gx, gy, fmin.X, fmin.Y, fsz.X, fsz.Y))
+                    continue;
+
+                var lx = gx - org.X;
+                var ly = gy - org.Y;
+                var flippedY = mc.Y - 1 - ly;
+                for (var py = 0; py < ppc; py++)
+                {
+                    for (var px = 0; px < ppc; px++)
+                    {
+                        var ipx = lx * ppc + px;
+                        var ipy = flippedY * ppc + py;
+                        floorMask.TargetImage.SetPixel(ipx, ipy, new Color(1f, 1f, 1f, 1f));
+                    }
+                }
+            }
+        }
+
+        floorMask.DisplayImage.CopyFrom(floorMask.TargetImage);
+        floorMask.DisplayTexture.Update(floorMask.DisplayImage);
+        if (floorZ == _activeFloorZ)
+            QueueRedraw();
+    }
+
+    private void PushSlidingShaderUniforms(bool sliding, int floorMinX, int floorMinY, int floorW, int floorH, int floorZ)
+    {
+        EnsureMaterial();
+        if (_material is null)
+            return;
+
+        var hasOrigin = _maskOriginGlobalByFloor.TryGetValue(floorZ, out var org);
+        var hasMc = _maskAllocatedCellsByFloor.TryGetValue(floorZ, out var mc);
+        var useSliding = sliding && hasOrigin && hasMc;
+
+        _material.SetShaderParameter("sliding_fog_mask", useSliding);
+        _material.SetShaderParameter("board_cells", new Vector2(floorW, floorH));
+        _material.SetShaderParameter("floor_min_xy", new Vector2(floorMinX, floorMinY));
+        _material.SetShaderParameter("mask_pixels_per_cell", (float)_pixelsPerCell);
+
+        if (useSliding)
+        {
+            _material.SetShaderParameter("mask_origin_global", new Vector2(org.X, org.Y));
+            _material.SetShaderParameter("mask_cells", new Vector2(mc.X, mc.Y));
+        }
+        else
+        {
+            _material.SetShaderParameter("mask_origin_global", new Vector2(floorMinX, floorMinY));
+            _material.SetShaderParameter("mask_cells", new Vector2(floorW, floorH));
         }
     }
 
@@ -143,6 +297,14 @@ public partial class FogOverlayRenderer : Node2D
         {
             _material!.SetShaderParameter("fog_mask", floorMask.DisplayTexture);
         }
+
+        if (_floorCellSizes.TryGetValue(floorZ, out var fsz) && _floorCellMins.TryGetValue(floorZ, out var fmin))
+        {
+            var useSlidingAlloc = _fogSlidingMaskEnabled &&
+                                  (_largeMapMode || (long)fsz.X * fsz.Y >= 4_000_000L);
+            PushSlidingShaderUniforms(useSlidingAlloc, fmin.X, fmin.Y, fsz.X, fsz.Y, floorZ);
+        }
+
         QueueRedraw();
     }
 
@@ -176,10 +338,30 @@ public partial class FogOverlayRenderer : Node2D
             return;
         }
 
-        var localCenterX = centerGlobalX - min.X;
-        var localCenterY = centerGlobalY - min.Y;
-        // Match GameRoot's north-up mapping: texture Y grows down while global Y grows north/up.
-        var flippedCellY = (size.Y - 1) - localCenterY;
+        var hasMaskOrg = _maskOriginGlobalByFloor.TryGetValue(floorZ, out var maskOrg);
+        var hasMcells = _maskAllocatedCellsByFloor.TryGetValue(floorZ, out var mcells);
+        var sliding = _fogSlidingMaskEnabled &&
+                      (_largeMapMode || (long)size.X * size.Y >= 4_000_000L) &&
+                      hasMaskOrg &&
+                      hasMcells;
+
+        float localCenterX;
+        float localCenterY;
+        float flippedCellY;
+        if (sliding)
+        {
+            localCenterX = centerGlobalX - maskOrg.X;
+            localCenterY = centerGlobalY - maskOrg.Y;
+            flippedCellY = (mcells.Y - 1) - localCenterY;
+        }
+        else
+        {
+            localCenterX = centerGlobalX - min.X;
+            localCenterY = centerGlobalY - min.Y;
+            // Match GameRoot's north-up mapping: texture Y grows down while global Y grows north/up.
+            flippedCellY = (size.Y - 1) - localCenterY;
+        }
+
         var centerPxX = localCenterX * _pixelsPerCell;
         var centerPxY = flippedCellY * _pixelsPerCell;
         var radiusPx = Mathf.Max(0.5f, radiusCells * _pixelsPerCell);
@@ -328,6 +510,12 @@ public partial class FogOverlayRenderer : Node2D
         _material.SetShaderParameter("fog_color", new Color(0.04f, 0.05f, 0.08f, 0.78f));
         EnsureDefaultMaskTexture();
         _material.SetShaderParameter("fog_mask", _defaultMaskTexture!);
+        _material.SetShaderParameter("sliding_fog_mask", false);
+        _material.SetShaderParameter("board_cells", Vector2.One);
+        _material.SetShaderParameter("floor_min_xy", Vector2.Zero);
+        _material.SetShaderParameter("mask_origin_global", Vector2.Zero);
+        _material.SetShaderParameter("mask_cells", Vector2.One);
+        _material.SetShaderParameter("mask_pixels_per_cell", 8f);
         Material = _material;
     }
 

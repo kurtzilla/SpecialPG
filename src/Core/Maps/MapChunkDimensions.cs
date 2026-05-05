@@ -42,6 +42,19 @@ public readonly struct MapChunkDimensions : IEquatable<MapChunkDimensions>
         localHeight = Math.Min(Height, mapHeight - originY);
     }
 
+    /// <summary>
+    /// Full chunk rectangle in local map coordinates (no map edge clipping). Use for unbounded / streaming floors
+    /// where every chunk is exactly <see cref="Width"/>×<see cref="Height"/> cells.
+    /// </summary>
+    public void GetChunkWorldExtentUnbounded(int chunkX, int chunkY, out int originX, out int originY,
+        out int localWidth, out int localHeight)
+    {
+        originX = chunkX * Width;
+        originY = chunkY * Height;
+        localWidth = Width;
+        localHeight = Height;
+    }
+
     public bool Equals(MapChunkDimensions other) => Width == other.Width && Height == other.Height;
 
     public override bool Equals(object? obj) => obj is MapChunkDimensions other && Equals(other);

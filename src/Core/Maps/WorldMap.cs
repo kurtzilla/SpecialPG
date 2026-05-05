@@ -2,7 +2,8 @@ namespace SpecialPG.Core.Maps;
 
 /// <summary>
 /// All horizontal <see cref="FloorSlice"/> layers plus vertical connections between cells.
-/// Global floor cells satisfy <c>MinX ≤ X &lt; MinX+Width</c>, <c>MinY ≤ Y &lt; MinY+Height</c> (defaults 0,0).
+/// Bounded maps: global floor cells satisfy <c>MinX ≤ X &lt; MinX+Width</c>, <c>MinY ≤ Y &lt; MinY+Height</c> (defaults 0,0).
+/// Unbounded maps: <see cref="Width"/> and <see cref="Height"/> are zero; use <see cref="CreateUnbounded"/>.
 /// </summary>
 public sealed class WorldMap
 {
@@ -16,6 +17,7 @@ public sealed class WorldMap
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(height);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(chunkWidth);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(chunkHeight);
+        IsBounded = true;
         Width = width;
         Height = height;
         ChunkWidth = chunkWidth;
@@ -24,16 +26,42 @@ public sealed class WorldMap
         MinY = minY;
     }
 
-    public int MinX { get; }
-    public int MinY { get; }
-    public int Width { get; }
-    public int Height { get; }
+    /// <summary>
+    /// Unbounded world (streaming): <see cref="Width"/> and <see cref="Height"/> are 0; floors use unbounded <see cref="FloorSlice"/> ctor.
+    /// </summary>
+    public static WorldMap CreateUnbounded(int chunkWidth = MapChunkDimensions.DefaultWidth,
+        int chunkHeight = MapChunkDimensions.DefaultHeight, int minX = 0, int minY = 0)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(chunkWidth);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(chunkHeight);
+        return new WorldMap
+        {
+            IsBounded = false,
+            Width = 0,
+            Height = 0,
+            ChunkWidth = chunkWidth,
+            ChunkHeight = chunkHeight,
+            MinX = minX,
+            MinY = minY,
+        };
+    }
+
+    private WorldMap()
+    {
+    }
+
+    public bool IsBounded { get; private init; }
+
+    public int MinX { get; private init; }
+    public int MinY { get; private init; }
+    public int Width { get; private init; }
+    public int Height { get; private init; }
 
     /// <summary>Horizontal chunk size in cells (Factorio default 32).</summary>
-    public int ChunkWidth { get; }
+    public int ChunkWidth { get; private init; }
 
     /// <summary>Vertical chunk size in cells (Factorio default 32).</summary>
-    public int ChunkHeight { get; }
+    public int ChunkHeight { get; private init; }
 
     public IReadOnlyList<VerticalLink> VerticalLinks => _verticalLinks;
 
@@ -53,7 +81,9 @@ public sealed class WorldMap
         if (_floors.TryGetValue(z, out var existing))
             return existing;
 
-        var slice = new FloorSlice(MinX, MinY, Width, Height, z, ChunkWidth, ChunkHeight);
+        var slice = IsBounded
+            ? new FloorSlice(MinX, MinY, Width, Height, z, ChunkWidth, ChunkHeight)
+            : new FloorSlice(MinX, MinY, z, ChunkWidth, ChunkHeight);
         _floors[z] = slice;
         return slice;
     }
@@ -62,8 +92,17 @@ public sealed class WorldMap
     public void SetFloor(FloorSlice slice)
     {
         ArgumentNullException.ThrowIfNull(slice);
-        if (slice.Width != Width || slice.Height != Height)
-            throw new ArgumentException("Floor slice width/height must match map dimensions.", nameof(slice));
+        if (IsBounded)
+        {
+            if (slice.Width != Width || slice.Height != Height)
+                throw new ArgumentException("Floor slice width/height must match map dimensions.", nameof(slice));
+        }
+        else if (slice.IsBounded)
+        {
+            throw new ArgumentException("Unbounded world requires unbounded floor slices (Width/Height are not used).",
+                nameof(slice));
+        }
+
         if (slice.ChunkWidth != ChunkWidth || slice.ChunkHeight != ChunkHeight)
             throw new ArgumentException("Floor slice chunk dimensions must match map chunk dimensions.", nameof(slice));
         if (slice.MinX != MinX || slice.MinY != MinY)

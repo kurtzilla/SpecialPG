@@ -2,7 +2,8 @@ namespace SpecialPG.Core.Maps;
 
 /// <summary>
 /// Horizontal tile grid at a fixed floor <see cref="Z"/>. Global cell addresses are <c>(X, Y)</c> with
-/// <c>MinX ≤ X &lt; MinX+Width</c>, <c>MinY ≤ Y &lt; MinY+Height</c>. Tiles are stored in sparse chunks keyed by local indices.
+/// <c>MinX ≤ X &lt; MinX+Width</c>, <c>MinY ≤ Y &lt; MinY+Height</c> when <see cref="IsBounded"/>; otherwise any integer
+/// coordinate is addressable. Tiles are stored in sparse chunks keyed by chunk indices (supports negative chunks).
 /// </summary>
 public sealed class FloorSlice
 {
@@ -18,6 +19,9 @@ public sealed class FloorSlice
     public int ChunkWidth { get; }
     public int ChunkHeight { get; }
 
+    /// <summary>False for streaming/unbounded maps: <see cref="Width"/> and <see cref="Height"/> are zero and ignored.</summary>
+    public bool IsBounded { get; }
+
     public FloorSlice(int minX, int minY, int width, int height, int z, int chunkWidth, int chunkHeight)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(width);
@@ -31,11 +35,28 @@ public sealed class FloorSlice
         Z = z;
         ChunkWidth = chunkWidth;
         ChunkHeight = chunkHeight;
+        IsBounded = true;
+        _chunkDims = new MapChunkDimensions(chunkWidth, chunkHeight);
+    }
+
+    /// <summary>Unbounded floor: any <c>(x,y)</c> is valid; only loaded chunks hold non-default tiles until generation runs.</summary>
+    public FloorSlice(int minX, int minY, int z, int chunkWidth, int chunkHeight)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(chunkWidth);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(chunkHeight);
+        MinX = minX;
+        MinY = minY;
+        Width = 0;
+        Height = 0;
+        Z = z;
+        ChunkWidth = chunkWidth;
+        ChunkHeight = chunkHeight;
+        IsBounded = false;
         _chunkDims = new MapChunkDimensions(chunkWidth, chunkHeight);
     }
 
     public bool Contains(int x, int y) =>
-        x >= MinX && x < MinX + Width && y >= MinY && y < MinY + Height;
+        !IsBounded || (x >= MinX && x < MinX + Width && y >= MinY && y < MinY + Height);
 
     public TileData Get(int x, int y)
     {
@@ -92,22 +113,70 @@ public sealed class FloorSlice
     {
         var slx = x - MinX;
         var sly = y - MinY;
-        cx = slx / ChunkWidth;
-        cy = sly / ChunkHeight;
+        if (IsBounded)
+        {
+            cx = slx / ChunkWidth;
+            cy = sly / ChunkHeight;
+        }
+        else
+        {
+            cx = FloorDiv(slx, ChunkWidth);
+            cy = FloorDiv(sly, ChunkHeight);
+        }
+
         lx = slx - cx * ChunkWidth;
         ly = sly - cy * ChunkHeight;
     }
 
+    private static int FloorDiv(int n, int d)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(d);
+        if (n >= 0)
+            return n / d;
+        return (n + 1) / d - 1;
+    }
+
     private TileData[] AllocateChunkBuffer(int cx, int cy)
     {
-        _chunkDims.GetChunkWorldExtent(cx, cy, Width, Height, out _, out _, out var lw, out var lh);
+        int lw, lh;
+        if (IsBounded)
+            _chunkDims.GetChunkWorldExtent(cx, cy, Width, Height, out _, out _, out lw, out lh);
+        else
+            _chunkDims.GetChunkWorldExtentUnbounded(cx, cy, out _, out _, out lw, out lh);
         return new TileData[lw * lh];
     }
 
     private int LocalIndex(int lx, int ly, int cx, int cy)
     {
-        _chunkDims.GetChunkWorldExtent(cx, cy, Width, Height, out _, out _, out var lw, out _);
+        int lw;
+        if (IsBounded)
+            _chunkDims.GetChunkWorldExtent(cx, cy, Width, Height, out _, out _, out lw, out _);
+        else
+            _chunkDims.GetChunkWorldExtentUnbounded(cx, cy, out _, out _, out lw, out _);
         return ly * lw + lx;
+    }
+
+    /// <summary>Chunk coordinates that currently have allocated tile buffers (for tools like water rules on streaming maps).</summary>
+    public IEnumerable<(int Cx, int Cy)> GetLoadedChunkCoordinates() => _chunks.Keys;
+
+    /// <summary>Number of chunks with allocated storage.</summary>
+    public int LoadedChunkCount => _chunks.Count;
+
+    /// <summary>World-space origin cell and size for chunk indices <paramref name="cx"/>, <paramref name="cy"/>.</summary>
+    public void GetChunkWorldCellRange(int cx, int cy, out int gx0, out int gy0, out int lw, out int lh)
+    {
+        if (IsBounded)
+        {
+            _chunkDims.GetChunkWorldExtent(cx, cy, Width, Height, out var ox, out var oy, out lw, out lh);
+            gx0 = MinX + ox;
+            gy0 = MinY + oy;
+        }
+        else
+        {
+            _chunkDims.GetChunkWorldExtentUnbounded(cx, cy, out var ox, out var oy, out lw, out lh);
+            gx0 = MinX + ox;
+            gy0 = MinY + oy;
+        }
     }
 
     /// <summary>True if any cell is non-default (see <c>docs/architecture.md</c> — “defined tile”).</summary>

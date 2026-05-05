@@ -115,7 +115,7 @@ public static class MapIntegrity
         map.TryGetFloor(z, out var slice) && slice is not null;
 
     private static bool InBounds(WorldMap map, int x, int y) =>
-        x >= map.MinX && x < map.MinX + map.Width && y >= map.MinY && y < map.MinY + map.Height;
+        !map.IsBounded || (x >= map.MinX && x < map.MinX + map.Width && y >= map.MinY && y < map.MinY + map.Height);
 
     private static bool FloorHasVerticalExit(WorldMap map, int z)
     {

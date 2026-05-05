@@ -19,6 +19,10 @@ public static class WorldMapJson
     public static string Serialize(WorldMap map)
     {
         ArgumentNullException.ThrowIfNull(map);
+        if (!map.IsBounded)
+            throw new InvalidOperationException("Unbounded maps cannot be serialized to JSON (no finite width/height).");
+        if ((long)map.Width * map.Height > 100_000_000L)
+            throw new InvalidOperationException("Map is too large for JSON serialization (exceeds 100M cells).");
         var dto = WorldMapDto.FromWorldMap(map);
         return JsonSerializer.Serialize(dto, Options);
     }

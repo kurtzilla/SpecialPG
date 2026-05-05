@@ -11,7 +11,7 @@ This document is the **source of truth** for coordinate conventions, floor slici
 
 **World state:** Actor pose and grid intents (use vertical link, debug floor cycle) live in Core [`WorldState`](../src/Core/Maps/WorldState.cs). The Shell may drive **continuous** world position for the avatar; Core’s `(ActorX, ActorY, ActorZ)` is updated as the **sampled foot cell** via `SetActorCellFromShell` so tiles, links, and integrity stay grid-aligned. Session fog-of-war revealed cells live in [`FogOfWarState`](../src/Core/Maps/FogOfWarState.cs) on the same `WorldState` instance.
 
-**Shell tuning:** [`config.ini`](../src/Godot/config.ini) (loaded by [`ShellAppConfig`](../src/Godot/ShellAppConfig.cs)) supplies values such as `cell_size_px`, default map dimensions (used when the shell builds a map with no JSON), move speed, zoom limits, and fog reveal half-extents (`fog_reveal_half_width_cells` / `fog_reveal_half_height_cells`) without recompiling. Window mode stays in `project.godot`. The checked-in [`sample_twofloor.json`](../src/Godot/maps/sample_twofloor.json) uses its own `width`/`height` from the file (kept smaller than those defaults so the asset stays tractable in git); bump dimensions in `scripts/gen_sample_twofloor.py` when you need a full-size sample on disk.
+**Shell tuning:** [`config.ini`](../src/Godot/config.ini) (loaded by [`ShellAppConfig`](../src/Godot/ShellAppConfig.cs)) supplies values such as `cell_size_px`, default map dimensions (used for bounded bootstrap / procedural defaults), move speed, zoom limits, and fog reveal half-extents (`fog_reveal_half_width_cells` / `fog_reveal_half_height_cells`) without recompiling. Window mode stays in `project.godot`. The checked-in [`sample_twofloor.json`](../src/Godot/maps/sample_twofloor.json) uses its own `width`/`height` from the file (kept smaller than those defaults so the asset stays tractable in git); bump dimensions in `scripts/gen_sample_twofloor.py` when you need a full-size sample on disk.
 
 **Fog reveal + edge tuning (GPU mask mode):** Core reveal writes stay authoritative and cell-based in [`FogOfWarState`](../src/Core/Maps/FogOfWarState.cs). Visual fog is decoupled in the shell: [`FogOverlayRenderer`](../src/Godot/FogOverlayRenderer.cs) keeps a floor-scoped world-space mask texture, stamps reveal circles on actor cell changes, and renders one board-sized quad with [`FogMaskOverlay.gdshader`](../src/Godot/FogMaskOverlay.gdshader). Tune via:
 - `fog_gpu_enabled`: default GPU mask path (`true`) vs legacy CPU tile overlay (`false`).
@@ -92,23 +92,44 @@ Core models each [`VerticalLink`](../src/Core/Maps/VerticalLink.cs) as **one hop
 
 If a design needs a **sequence** of landings—e.g. **Stair A** through Z **1 → 4 → 5 → 6**, or **Stair B** through **1 → 2 → 3 → 18**—that is **not** expressed by a single `VerticalLink` unless you only care about a **direct** jump from the bottom to top endpoint. A single link `(x,y,1) → (x,y,6)` does **not** imply the actor “visits” Z=4 and Z=5 as part of the same feature unless you add a separate model (e.g. ordered waypoint list / stair-run id, or a **chain** of `VerticalLink`s at the same shaft). Future work should pick one representation and document it here.
 
-## Procedural maps and map sources
+## Maps: Factorio-style convention (living document)
 
-**Authoritative data** for a run is always an in-memory [`WorldMap`](../src/Core/Maps/WorldMap.cs). JSON ([`WorldMapJson`](../src/Core/Maps/WorldMapJson.cs)) is one loader; procedural output should also materialize a `WorldMap` (and optional `WorldState`) the same way.
+This project treats **Factorio’s map model** as the **design reference** for worlds and saves. Details will evolve with implementation; revise this section when behavior changes.
 
-**Shell bootstrap:** The Godot shell composes [`IWorldMapSource`](../src/Core/Maps/IWorldMapSource.cs) implementations (e.g. JSON file, then built-in fallback) via [`ChainedWorldMapSource`](../src/Core/Maps/ChainedWorldMapSource.cs). Add a new implementation (e.g. `ProceduralWorldMapSource`) and insert it in the chain instead of branching all logic through [`GameRoot`](../src/Godot/GameRoot.cs).
+### What “the Factorio way” means here
 
-**Seeds and determinism:** Pass a session/world **seed** into procedural builders; keep generation **pure** (inputs → map) where possible so tests can replay. Prefer injectable random (or a fixed `Random` from seed) over ad hoc `Random.Shared` in Core hot paths.
+- **Global map seed** (plus generation settings you define later) **deterministically** defines what would exist at any chunk coordinate. Same seed + same chunk index + same floor ⇒ same generated content (before player/building changes).
+- **Chunks** are the natural unit of generation and storage. Factorio uses **32×32** tiles per surface chunk; SpecialPG uses the same default via [`MapChunkDimensions`](../src/Core/Maps/MapChunkDimensions.cs) (`DefaultWidth` / `DefaultHeight` = 32). Chunk dimensions may stay configurable, but the **Factorio default** is the baseline.
+- **Realized territory** is not assumed to be fully precomputed for an infinite plane. Generation is conceptually **on demand** as the simulation or camera needs a chunk (Factorio generates chunks as the map is explored). Storage stays **sparse**: [`FloorSlice`](../src/Core/Maps/FloorSlice.cs) holds tile data per **chunk key** `(Cx, Cy)` only where chunks have content.
+- **Persistence:** A **new game** stores (or implies) **seed + settings** and persists **what changed** as the player affects the world. **Loading** restores stored state for visited/modified areas and uses the **same generator math** for space that was never materialized or saved in full. Exact save encoding (`WorldMapJson`, binary, per-chunk blobs) is an implementation choice; the **factorio-like intent** is seed + deltas, not one giant static asset for the whole universe.
 
-**Bounds:** `WorldMap` today uses a **fixed** `Width`/`Height` and optional `MinX`/`MinY`. Bounded proc patches fit as-is. **Growing** or “infinite” worlds imply either rebuilding a larger map, extending APIs later, or introducing **world-chunk** addressing separate from tile `MinX`/`MinY`—document the chosen policy when you add streaming.
+### SpecialPG mapping (today vs direction)
 
-**[`MapIntegrity`](../src/Core/Maps/MapIntegrity.cs) timing:** Full validation assumes a **complete** link graph. Partial/streamed generation may temporarily violate rules; consider **authoring-time** vs **runtime** validation (e.g. validate only **committed** regions, or a final pass after generation).
+- **Authoritative runtime data** remains an in-memory [`WorldMap`](../src/Core/Maps/WorldMap.cs) (floors as [`FloorSlice`](../src/Core/Maps/FloorSlice.cs), [`VerticalLink`](../src/Core/Maps/VerticalLink.cs) list). JSON ([`WorldMapJson`](../src/Core/Maps/WorldMapJson.cs)) is one way to **hydrate** that graph for development or hand-authored maps.
+- **`WorldMap` bounds:** The type currently uses a **finite** `Width`/`Height` and optional `MinX`/`MinY`. That is enough for a **bounded** prototype (generate every chunk inside the box). **Streaming / growth** (true on-demand chunks beyond a fixed rectangle) means either extending APIs or introducing explicit **world-chunk** streaming separate from fixed map bounds—do that when you add exploration at scale; until then, treat the bounded box as a **development stepping stone**, but keep **generation logic per chunk** `(seed, Z, chunkX, chunkY)` so you do not rewrite core math when streaming arrives.
+- **Core procedural bootstrap:** [`ProceduralWorldMapGenerator`](../src/Core/Maps/ProceduralWorldMapGenerator.cs) fills Z=0 and Z=1 from [`MapGenerationParameters`](../src/Core/Maps/MapGenerationParameters.cs) (seed + **land % / water %**) with one deterministic RNG per chunk; water uses [`TerrainTileKinds.Water`](../src/Core/Maps/TerrainTileKinds.cs) + blocked walk. [`ProceduralWorldMapSource`](../src/Core/Maps/ProceduralWorldMapSource.cs) implements [`IWorldMapSource`](../src/Core/Maps/IWorldMapSource.cs) and runs [`MapIntegrity`](../src/Core/Maps/MapIntegrity.cs) before returning.
+- **Map workbench (Shell):** ESC pause menu → **Map generator** (preview 128×128, apply full-size world from config dimensions) or **Map editor** (after a workbench-committed proc map only). [`MapWorkbenchPanel`](../src/Godot/MapWorkbenchPanel.cs) + [`MapPreviewRasterizer`](../src/Godot/MapPreviewRasterizer.cs). Session tracks [`SessionMapOrigin`](../src/Godot/SessionMapOrigin.cs) / committed [`MapGenerationParameters`](../src/Core/Maps/MapGenerationParameters.cs) on [`GameRoot`](../src/Godot/GameRoot.cs).
+- **Save envelope (future wiring):** [`MapSaveEnvelope`](../src/Core/Maps/MapSaveEnvelope.cs) + [`MapSaveEnvelopeJson`](../src/Core/Maps/MapSaveEnvelopeJson.cs) pair serialized world JSON with generation parameters for re-edit.
 
-**Vertical connectivity:** Any floor with defined tiles must still satisfy the integrity rule (vertical exit). Generators should place **stairs/links in the same pass** as tiles, or run a **repair pass** after layout.
+### Map sources and shell bootstrap
 
-**Fog / memory:** [`FogOfWarState`](../src/Core/Maps/FogOfWarState.cs) reveal sets grow with explored area; huge proc worlds may need caps, eviction, or hierarchical fog—document limits when you scale up.
+The Shell composes [`IWorldMapSource`](../src/Core/Maps/IWorldMapSource.cs) implementations via [`ChainedWorldMapSource`](../src/Core/Maps/ChainedWorldMapSource.cs) (see [`GameRoot`](../src/Godot/GameRoot.cs)). JSON-from-disk is one source; **procedural** sources should produce the same `WorldMap` contract. Prefer **clear failure** (log + user-visible error, or menu exit) over silently dropping to a placeholder map—players should not land on an unlabeled “emergency” layout. Hand-authored JSON and procedural generation can coexist (e.g. JSON for fixed scenarios, procedural for new-game worlds); configuration chooses precedence.
 
-**Persistence:** Saves can continue to use `WorldMapJson` or a future binary/chunked format aligned with [`FloorSlice`](../src/Core/Maps/FloorSlice.cs) chunk storage.
+### Seeds and determinism
+
+Pass a session/world **seed** into procedural builders; keep generation **pure** (inputs → tiles/links) where possible so tests and replays match. Prefer a dedicated RNG derived from the seed (or a small deterministic PRNG) over `Random.Shared` in Core hot paths.
+
+### Integrity vs streaming
+
+[`MapIntegrity`](../src/Core/Maps/MapIntegrity.cs) today assumes a **complete** map graph for validation. **Partial/streamed** generation may temporarily violate rules until a region is **committed**; split **authoring-time** checks from **runtime** checks (validate after a chunk batch, or run a **repair pass** for vertical connectivity). Any floor with defined tiles must eventually satisfy the [Map Integrity rule](#map-integrity-rule); generators should place **stairs/links** in the same pass as tiles when feasible.
+
+### Fog and memory at scale
+
+[`FogOfWarState`](../src/Core/Maps/FogOfWarState.cs) reveal sets grow with explored area. Large Factorio-scale worlds may need caps, eviction, or hierarchical fog—document limits when you rely on huge bounds.
+
+### Persistence (summary)
+
+Saves should align with **chunk-oriented** [`FloorSlice`](../src/Core/Maps/FloorSlice.cs) storage: seed, settings, and **per-chunk or aggregated deltas** for territory that matters—not necessarily a monolithic JSON of the entire infinite plane.
 
 ## Interaction (summary)
 

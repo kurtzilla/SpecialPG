@@ -87,9 +87,10 @@ public partial class DebugGridOverlay : Node2D
     private void DrawVerticalLinks(FloorSlice floor)
     {
         var z = floor.Z;
-        for (var gy = floor.MinY; gy < floor.MinY + floor.Height; gy++)
+        _grid!.ShellGetVisibleCellBounds(out var minGx, out var maxGx, out var minGy, out var maxGy);
+        for (var gy = minGy; gy <= maxGy; gy++)
         {
-            for (var gx = floor.MinX; gx < floor.MinX + floor.Width; gx++)
+            for (var gx = minGx; gx <= maxGx; gx++)
             {
                 var hint = _grid!.ShellVerticalLinkHint(gx, gy, z);
                 if (hint == GameRoot.VerticalLinkHint.None)

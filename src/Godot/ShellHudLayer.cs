@@ -1,5 +1,6 @@
 #nullable enable
 using Godot;
+using SpecialPG;
 
 /// <summary>
 /// Root-level shell HUD + pause menu (ESC toggles). Quit lives at the top of the pause menu only.
@@ -64,6 +65,9 @@ public partial class ShellHudLayer : Control
     private HSlider _fogBrushCoreSlider = null!;
     private Label _fogBrushFeatherLabel = null!;
     private HSlider _fogBrushFeatherSlider = null!;
+    private Button _mapGenBtn = null!;
+    private Button _mapEditorBtn = null!;
+    private MapWorkbenchPanel _mapWorkbench = null!;
 
     public override void _Ready()
     {
@@ -117,6 +121,15 @@ public partial class ShellHudLayer : Control
         _fogPerformanceBtn.Text = FogPerformanceLabel;
         quitBtn.Pressed += OnPauseQuitPressed;
         resumeBtn.Pressed += ClosePauseMenu;
+        _mapGenBtn = GetNode<Button>("PauseMenuRoot/Center/MenuPanel/Margin/VBox/PauseMapGeneratorButton");
+        _mapEditorBtn = GetNode<Button>("PauseMenuRoot/Center/MenuPanel/Margin/VBox/PauseMapEditorButton");
+        _mapGenBtn.Pressed += OnMapGeneratorPressed;
+        _mapEditorBtn.Pressed += OnMapEditorPressed;
+
+        _mapWorkbench = new MapWorkbenchPanel();
+        AddChild(_mapWorkbench);
+        if (_gridRoot is not null)
+            _mapWorkbench.Configure(_gridRoot);
         _nativeBtn.Pressed += () =>
         {
             _gridRoot?.ApplyPerfPreset(1.0f, 0, -1, "native");
@@ -382,6 +395,18 @@ public partial class ShellHudLayer : Control
 
     public void SetPlayerPositionText(string text) => _playerPosLabel.Text = text;
 
+    /// <summary>Returns true if ESC closed the map workbench (do not toggle pause).</summary>
+    public bool TryConsumeEscForMapWorkbench()
+    {
+        if (!_mapWorkbench.Visible)
+        {
+            return false;
+        }
+
+        _mapWorkbench.CloseWorkbench();
+        return true;
+    }
+
     /// <summary>Called from <see cref="GameRoot._UnhandledInput"/> so ESC is ordered with other shell keys.</summary>
     public void TogglePauseMenuFromEsc()
     {
@@ -399,8 +424,42 @@ public partial class ShellHudLayer : Control
     {
         _pauseMenuRoot.Visible = true;
         _pauseMenuRoot.MouseFilter = MouseFilterEnum.Stop;
+        RefreshMapMenuButtons();
         var resume = GetNode<Button>("PauseMenuRoot/Center/MenuPanel/Margin/VBox/PauseResumeButton");
         resume.GrabFocus();
+    }
+
+    private void RefreshMapMenuButtons()
+    {
+        _gridRoot ??= GetTree().CurrentScene?.GetNodeOrNull<GameRoot>("GridMap");
+        var canEdit = _gridRoot?.ShellCanOpenMapEditor ?? false;
+        _mapEditorBtn.Disabled = !canEdit;
+    }
+
+    private void OnMapGeneratorPressed()
+    {
+        _gridRoot ??= GetTree().CurrentScene?.GetNodeOrNull<GameRoot>("GridMap");
+        if (_gridRoot is null)
+        {
+            return;
+        }
+
+        _mapWorkbench.Configure(_gridRoot);
+        ClosePauseMenu();
+        _mapWorkbench.Open(MapWorkbenchMode.GenerateNewGame);
+    }
+
+    private void OnMapEditorPressed()
+    {
+        _gridRoot ??= GetTree().CurrentScene?.GetNodeOrNull<GameRoot>("GridMap");
+        if (_gridRoot is null || !_gridRoot.ShellCanOpenMapEditor)
+        {
+            return;
+        }
+
+        _mapWorkbench.Configure(_gridRoot);
+        ClosePauseMenu();
+        _mapWorkbench.Open(MapWorkbenchMode.EditCurrentMap);
     }
 
     private void ClosePauseMenu()

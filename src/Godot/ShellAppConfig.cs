@@ -51,7 +51,14 @@ public sealed class ShellAppConfig
         int fogEdgeSamples,
         float renderScale,
         int maxFps,
-        int vsyncMode)
+        int vsyncMode,
+        bool startupUseJsonSample,
+        int startupSeed,
+        int startupLandPercent,
+        bool fogSlidingMaskEnabled,
+        bool largeMapMode,
+        int fogMaskWindowCells,
+        int fogMaskRecenterMarginCells)
     {
         CellSizePx = cellSizePx;
         DefaultMapWidthCells = defaultMapWidthCells;
@@ -78,6 +85,13 @@ public sealed class ShellAppConfig
         RenderScale = renderScale;
         MaxFps = maxFps;
         VsyncMode = vsyncMode;
+        StartupUseJsonSample = startupUseJsonSample;
+        StartupSeed = startupSeed;
+        StartupLandPercent = startupLandPercent;
+        FogSlidingMaskEnabled = fogSlidingMaskEnabled;
+        LargeMapMode = largeMapMode;
+        FogMaskWindowCells = fogMaskWindowCells;
+        FogMaskRecenterMarginCells = fogMaskRecenterMarginCells;
     }
 
     public float CellSizePx { get; }
@@ -146,6 +160,27 @@ public sealed class ShellAppConfig
     /// <summary>DisplayServer VSync mode override; -1 keeps project/default behavior.</summary>
     public int VsyncMode { get; }
 
+    /// <summary>When true, cold start uses <c>res://maps/sample_twofloor.json</c> (then fallback) instead of procedural.</summary>
+    public bool StartupUseJsonSample { get; }
+
+    /// <summary>Seed for procedural cold start (<see cref="MapGenerationParameters"/>).</summary>
+    public int StartupSeed { get; }
+
+    /// <summary>Land percent 0–100 for procedural cold start (water = 100 − land).</summary>
+    public int StartupLandPercent { get; }
+
+    /// <summary>When true, GPU fog may use a fixed-size sliding mask on very large maps (see fog_mask_window_cells).</summary>
+    public bool FogSlidingMaskEnabled { get; }
+
+    /// <summary>Enables large default map dimensions and large-map safeguards in the shell.</summary>
+    public bool LargeMapMode { get; }
+
+    /// <summary>Sliding fog mask window size in cells (per axis), capped by map size.</summary>
+    public int FogMaskWindowCells { get; }
+
+    /// <summary>Recenter sliding fog mask when the anchor comes within this many cells of the mask edge.</summary>
+    public int FogMaskRecenterMarginCells { get; }
+
     public static ShellAppConfig LoadOrDefault()
     {
         const float defCell = 32f;
@@ -173,6 +208,13 @@ public sealed class ShellAppConfig
         const float defRenderScale = 1.0f;
         const int defMaxFps = 0;
         const int defVsyncMode = -1;
+        const bool defStartupUseJsonSample = false;
+        const int defStartupSeed = 1;
+        const int defStartupLandPercent = 55;
+        const bool defFogSlidingMaskEnabled = true;
+        const bool defLargeMapMode = false;
+        const int defFogMaskWindowCells = 256;
+        const int defFogMaskRecenterMarginCells = 48;
 
         var cf = new ConfigFile();
         var err = cf.Load(Path);
@@ -182,7 +224,9 @@ public sealed class ShellAppConfig
             return new ShellAppConfig(defCell, defW, defH, defChunkW, defChunkH, defSpeed, defZMin, defZMax, defZStep,
                 defFogHalfW, defFogHalfH, defFogEdgeOpacity, defFogEdgeEnabled, defFogGpuEnabled, defFogMaskPixelsPerCell,
                 defFogVisualUpdateHz, defFogRevealLerpSpeed, defFogBrushHardCoreRatio, defFogBrushFeatherExponent,
-                defFogEdgeWidthCells, defFogEdgeSoftness, defFogEdgeSamples, defRenderScale, defMaxFps, defVsyncMode);
+                defFogEdgeWidthCells, defFogEdgeSoftness, defFogEdgeSamples, defRenderScale, defMaxFps, defVsyncMode,
+                defStartupUseJsonSample, defStartupSeed, defStartupLandPercent, defFogSlidingMaskEnabled, defLargeMapMode,
+                defFogMaskWindowCells, defFogMaskRecenterMarginCells);
         }
 
         float F(string key, float d) =>
@@ -193,10 +237,14 @@ public sealed class ShellAppConfig
         bool B(string key, bool d) =>
             cf.HasSectionKey("shell", key) ? (bool)cf.GetValue("shell", key).AsBool() : d;
 
+        var largeMapMode = B("large_map_mode", defLargeMapMode);
+        var mapW = I("default_map_width_cells", largeMapMode ? 16384 : defW);
+        var mapH = I("default_map_height_cells", largeMapMode ? 16384 : defH);
+
         return new ShellAppConfig(
             F("cell_size_px", defCell),
-            I("default_map_width_cells", defW),
-            I("default_map_height_cells", defH),
+            mapW,
+            mapH,
             I("chunk_width_cells", defChunkW),
             I("chunk_height_cells", defChunkH),
             F("move_speed_px_s", defSpeed),
@@ -218,7 +266,14 @@ public sealed class ShellAppConfig
             Mathf.Clamp(I("fog_edge_samples", defFogEdgeSamples), 2, 16),
             F("render_scale", defRenderScale),
             I("max_fps", defMaxFps),
-            I("vsync_mode", defVsyncMode));
+            I("vsync_mode", defVsyncMode),
+            B("startup_use_json_sample", defStartupUseJsonSample),
+            I("startup_seed", defStartupSeed),
+            Mathf.Clamp(I("startup_land_percent", defStartupLandPercent), 0, 100),
+            B("fog_sliding_mask_enabled", defFogSlidingMaskEnabled),
+            largeMapMode,
+            Mathf.Clamp(I("fog_mask_window_cells", defFogMaskWindowCells), 32, 2048),
+            Mathf.Clamp(I("fog_mask_recenter_margin_cells", defFogMaskRecenterMarginCells), 8, 1024));
     }
 
     public static Error SaveRuntimeShellSettings(

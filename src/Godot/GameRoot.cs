@@ -19,7 +19,7 @@ public partial class GameRoot : Node2D
     private const string ShellRevisionLogPath = "res://../../docs/shell-feature-revision-log.md";
 
     /// <summary>Bump when you add user-visible shell behavior; add a line to <see cref="ShellFeatureChangelogLines"/>.</summary>
-    private const int ShellFeatureRevision = 17;
+    private const int ShellFeatureRevision = 21;
 
     /// <summary>First fog reveal after session start uses this multiplier on configured half-extents (linear per axis).</summary>
     private const int InitialFogRevealHalfExtentMultiplier = 1;
@@ -38,11 +38,14 @@ public partial class GameRoot : Node2D
         "Root ShellHudLayer: ESC pause menu (Quit first, Resume); HUD off GridMap CanvasLayer.",
         "Upper-right world XY uses fixed 2 decimal places (F2), not 2 significant figures.",
         "Upper-right FPS line above coords; public GameRoot.ShellFps (smoothed).",
-        "Perf: ray-pick HUD only on cell change; physics QueueRedraw when move/zoom changes.",
+        "Perf: ray-pick HUD only on cell change; physics skips GameRoot.QueueRedraw on move when GPU fog (terrain uses camera transform).",
         "Top-right stack: perf + FPS + coords + FLR + ZOM.",
         "HUD readouts throttled (~12Hz) to stay snappy without per-frame text churn.",
         "Config knobs: render_scale / max_fps / vsync_mode for quick perf profiling.",
         "Fog: GPU mask + shader overlay path (world-space texture) with CPU legacy toggle on F6.",
+        "Pause menu: Map generator / Map editor (shared land-water UI); GameRoot.ApplyMapFromWorkbench + MapSaveEnvelope types.",
+        "Cold start: procedural map from config.ini startup_seed / startup_land_percent (startup_use_json_sample for JSON-first dev).",
+        "TileTraversal: water TileKind is never walkable (fixes JSON maps with flags=0 on water).",
     };
 
     private static readonly Color GridLineColor = new(0.17f, 0.18f, 0.21f, 0.62f);
@@ -86,6 +89,9 @@ public partial class GameRoot : Node2D
     private int _integrityWarningCount;
     private bool _warnedEscMissingHud;
 
+    private SessionMapOrigin _sessionMapOrigin;
+    private MapGenerationParameters? _committedGenerationParameters;
+
     private enum FogRenderMode
     {
         LegacyTileCpu,
@@ -121,6 +127,24 @@ public partial class GameRoot : Node2D
     public int ShellMapMinX => _world.Map.MinX;
 
     public int ShellMapMinY => _world.Map.MinY;
+
+    public int ShellDefaultMapWidthCells => _shell.DefaultMapWidthCells;
+
+    public int ShellDefaultMapHeightCells => _shell.DefaultMapHeightCells;
+
+    public int ShellChunkWidthCells => _shell.ChunkWidthCells;
+
+    public int ShellChunkHeightCells => _shell.ChunkHeightCells;
+
+    public SessionMapOrigin ShellSessionMapOrigin => _sessionMapOrigin;
+
+    public MapGenerationParameters? ShellCommittedGenerationParameters => _committedGenerationParameters;
+
+    public WorldMap ShellWorldMap => _world.Map;
+
+    public bool ShellCanOpenMapEditor =>
+        (_sessionMapOrigin is SessionMapOrigin.ProceduralWorkbench or SessionMapOrigin.ProceduralColdStart) &&
+        _committedGenerationParameters is not null;
 
     public int ShellActorZ => _world.ActorZ;
 
@@ -275,16 +299,70 @@ public partial class GameRoot : Node2D
 
         _shellPlayer = GetNodeOrNull<ShellPlayer>("Player");
 
-        var mapChain = new ChainedWorldMapSource(
-            new JsonWorldMapSource(SampleMapPath),
-            new FallbackSampleWorldMapSource(_shell));
-        var map = mapChain.TryBuildWorldMap(out _mapSourceSummary, out var mapBuildError);
-        if (map is null)
+        _sessionMapOrigin = SessionMapOrigin.Unknown;
+        _committedGenerationParameters = null;
+
+        // Future: when loading a save game, deserialize WorldMap from the save envelope here and skip cold-start selection.
+        WorldMap map;
+        if (_shell.StartupUseJsonSample)
         {
-            GD.PrintErr($"[GameRoot] Map chain failed unexpectedly: {mapBuildError}");
-            map = SampleWorldMapBootstrap.CreateFallbackMap(_shell);
-            _mapSourceSummary = "Emergency fallback after map source chain failure";
+            var mapChain = new ChainedWorldMapSource(
+                new JsonWorldMapSource(SampleMapPath),
+                new FallbackSampleWorldMapSource(_shell));
+            var chainMap = mapChain.TryBuildWorldMap(out _mapSourceSummary, out var mapBuildError);
+            if (chainMap is null)
+            {
+                GD.PrintErr($"[GameRoot] Map chain failed unexpectedly: {mapBuildError}");
+                map = SampleWorldMapBootstrap.CreateFallbackMap(_shell);
+                _mapSourceSummary = "Emergency fallback after map source chain failure";
+            }
+            else
+            {
+                map = chainMap;
+            }
+
+            if (_mapSourceSummary.StartsWith("JSON", StringComparison.Ordinal))
+                _sessionMapOrigin = SessionMapOrigin.JsonLoaded;
         }
+        else
+        {
+            var parameters = MapGenerationParameters.Create(_shell.StartupSeed, _shell.StartupLandPercent);
+            map = ProceduralWorldMapGenerator.BuildBoundedWorld(
+                _shell.DefaultMapWidthCells,
+                _shell.DefaultMapHeightCells,
+                _shell.ChunkWidthCells,
+                _shell.ChunkHeightCells,
+                parameters);
+            _committedGenerationParameters = parameters;
+            _sessionMapOrigin = SessionMapOrigin.ProceduralColdStart;
+            _mapSourceSummary =
+                $"Procedural cold start seed {parameters.Seed} land={parameters.LandPercent}% ({_shell.DefaultMapWidthCells}×{_shell.DefaultMapHeightCells})";
+        }
+
+        BootstrapWorldFromMap(map, logBootLine: true);
+    }
+
+    /// <summary>Replace the active session map (e.g. map workbench commit).</summary>
+    public void ApplyMapFromWorkbench(WorldMap map, MapGenerationParameters parameters)
+    {
+        ArgumentNullException.ThrowIfNull(map);
+        _committedGenerationParameters = parameters;
+        _sessionMapOrigin = SessionMapOrigin.ProceduralWorkbench;
+        _mapSourceSummary = $"Map workbench seed {parameters.Seed} land={parameters.LandPercent}%";
+        BootstrapWorldFromMap(map, logBootLine: false);
+    }
+
+    private void BootstrapWorldFromMap(WorldMap map, bool logBootLine)
+    {
+        ArgumentNullException.ThrowIfNull(map);
+        if (!map.IsBounded)
+            throw new NotSupportedException(
+                "Unbounded maps are Core-only until streaming shell work lands; use a bounded WorldMap in the Godot shell.");
+        if ((long)map.Width * map.Height < 4_000_000L)
+            WaterTerrainRules.ApplyMinimumWaterBlobSizeTwoByTwo(map);
+
+        var parent = GetParent();
+        _fogFirstRevealApplied = false;
 
         var floor0 = map.GetOrCreateFloor(0);
         var spawnGx = floor0.MinX + floor0.Width / 2;
@@ -319,14 +397,24 @@ public partial class GameRoot : Node2D
         {
             SnapPlayerToActorCell();
         }
+
         ConfigureFogOverlayForActiveFloor();
         PrimeInitialFogVisual();
         RefreshShellHud();
-        LogShellFeatureRevisionToFile();
+        if (logBootLine)
+        {
+            LogShellFeatureRevisionToFile();
+        }
+
         QueueRedraw();
         QueueDebugOverlayRedrawIfVisible();
 
         parent?.GetNodeOrNull<InteractionRay3D>("Interaction3D")?.RebuildPickGeometry();
+
+        if (!logBootLine)
+        {
+            return;
+        }
 
         var floor = ActiveFloorSlice;
         var sample = floor.Get(1, 1);
@@ -622,7 +710,12 @@ public partial class GameRoot : Node2D
         _lastPhysicsRedrawZoom = _zoom;
         _fogOverlayRenderer?.AdvanceRevealAnimation(delta);
         StampVisualFogFromPlayer(delta);
-        QueueRedraw();
+
+        // Fog GPU path redraws itself (stamp + animation). Legacy CPU fog draws inside GameRoot._Draw — repaint then.
+        // Omit GameRoot.QueueRedraw here for GPU fog so we avoid repainting every terrain tile + grid each physics tick while moving.
+        if (_fogRenderMode == FogRenderMode.LegacyTileCpu)
+            QueueRedraw();
+
         QueueDebugOverlayRedrawIfVisible();
     }
 
@@ -655,6 +748,12 @@ public partial class GameRoot : Node2D
 
         if (@event.IsActionPressed("ui_cancel"))
         {
+            if (_shellHud?.TryConsumeEscForMapWorkbench() == true)
+            {
+                GetViewport().SetInputAsHandled();
+                return;
+            }
+
             if (_shellHud is null)
             {
                 if (!_warnedEscMissingHud)
@@ -782,7 +881,7 @@ public partial class GameRoot : Node2D
                 }
 
                 var tile = floor.Get(gx, gy);
-                DrawRect(rect, TileColor(tile.TileKind), true);
+                DrawRect(rect, TileColor(tile), true);
             }
         }
 
@@ -1453,6 +1552,7 @@ public partial class GameRoot : Node2D
         _world.Fog.ApplyCircle(0, slice.Z, _world.ActorX, _world.ActorY, radius, slice.MinX, slice.MinY,
             slice.Width, slice.Height);
         _fogOverlayRenderer?.EnsureFloorMask(slice.Z, slice.MinX, slice.MinY, slice.Width, slice.Height);
+        _fogOverlayRenderer?.SyncSlidingMaskAnchor(slice.Z, _world.ActorX, _world.ActorY, _world, 0);
         _fogOverlayRenderer?.StampRevealCircle(slice.Z, _world.ActorX, _world.ActorY, radius);
         if (isInitialReveal)
         {
@@ -1471,6 +1571,7 @@ public partial class GameRoot : Node2D
         var slice = ActiveFloorSlice;
         var radius = Math.Max(_shell.FogRevealHalfWidthCells, _shell.FogRevealHalfHeightCells);
         _fogOverlayRenderer.EnsureFloorMask(slice.Z, slice.MinX, slice.MinY, slice.Width, slice.Height);
+        _fogOverlayRenderer.SyncSlidingMaskAnchor(slice.Z, _world.ActorX, _world.ActorY, _world, 0);
         _fogOverlayRenderer.SetActiveFloor(slice.Z);
         _fogOverlayRenderer.StampRevealCircle(slice.Z, _world.ActorX, _world.ActorY, radius);
         _fogOverlayRenderer.SnapDisplayToTarget(slice.Z);
@@ -1500,6 +1601,7 @@ public partial class GameRoot : Node2D
         var gy = floor.MinY + localY;
         var radius = Math.Max(_shell.FogRevealHalfWidthCells, _shell.FogRevealHalfHeightCells);
         _fogOverlayRenderer.EnsureFloorMask(floor.Z, floor.MinX, floor.MinY, floor.Width, floor.Height);
+        _fogOverlayRenderer.SyncSlidingMaskAnchor(floor.Z, Mathf.FloorToInt(gx), Mathf.FloorToInt(gy), _world, 0);
         _fogOverlayRenderer.StampRevealCircleAtGlobal(floor.Z, gx, gy, radius);
     }
 
@@ -1541,7 +1643,10 @@ public partial class GameRoot : Node2D
         var floor = ActiveFloorSlice;
         var origin = GetGridOrigin(floor.Width, floor.Height);
         _fogOverlayRenderer.ConfigureBoard(origin, floor.Width, floor.Height, _cellSizePx, _fogMaskPixelsPerCell);
+        _fogOverlayRenderer.SetSlidingFogMode(_shell.FogSlidingMaskEnabled, _shell.LargeMapMode, _shell.FogMaskWindowCells,
+            _shell.FogMaskRecenterMarginCells);
         _fogOverlayRenderer.EnsureFloorMask(floor.Z, floor.MinX, floor.MinY, floor.Width, floor.Height);
+        _fogOverlayRenderer.SyncSlidingMaskAnchor(floor.Z, _world.ActorX, _world.ActorY, _world, 0);
         _fogOverlayRenderer.SetActiveFloor(floor.Z);
         _fogOverlayRenderer.ConfigureStyle(_fogVisualColor, _fogEdgeWidthCells, _fogEdgeSoftness, _fogEdgeSamples,
             _fogRenderMode == FogRenderMode.GpuMaskOverlay);
@@ -1561,7 +1666,7 @@ public partial class GameRoot : Node2D
     private static bool TryFindWalkableSpawnNearCenter(FloorSlice floor, int centerGx, int centerGy, out int sx,
         out int sy)
     {
-        var maxR = Math.Max(floor.Width, floor.Height);
+        var maxR = Math.Min(512, Math.Max(floor.Width, floor.Height));
         for (var r = 0; r < maxR; r++)
         {
             for (var dy = -r; dy <= r; dy++)
@@ -1670,14 +1775,13 @@ public partial class GameRoot : Node2D
         return new Rect2(px, py, _cellSizePx, _cellSizePx);
     }
 
-    private static Color TileColor(ushort tileKind)
+    private static Color TileColor(CoreTileData tile)
     {
-        return tileKind switch
-        {
-            1 => new Color(0.22f, 0.31f, 0.42f),
-            2 => new Color(0.26f, 0.36f, 0.48f),
-            _ => new Color(0.30f, 0.40f, 0.50f)
-        };
+        if (tile.TileKind == TerrainTileKinds.Water)
+            return new Color(0.25f, 0.55f, 0.92f);
+        if ((tile.Flags & TileFlags.Blocked) != 0)
+            return new Color(0.20f, 0.45f, 0.24f);
+        return new Color(0.32f, 0.72f, 0.38f);
     }
 
     private static void EnsureUiCancelBinding()

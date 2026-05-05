@@ -1,6 +1,6 @@
 # SpecialPG
 
-Grid-based game (Core + Shell) using the **melange view** for Shell rendering—see [`docs/melange-view-pattern.md`](docs/melange-view-pattern.md). Design rules: [`.cursor/.cursorrules.md`](.cursor/.cursorrules.md); coordinates and floors: [`docs/architecture.md`](docs/architecture.md). **Run / debug workflow** (no-picker F5 attach): [`docs/debugging.md`](docs/debugging.md).
+Grid-based game (Core + Shell) using the **melange view** for Shell rendering—see [`docs/melange-view-pattern.md`](docs/melange-view-pattern.md). Design rules: [`.cursor/.cursorrules.md`](.cursor/.cursorrules.md); coordinates, floors, and **Factorio-style map/chunk conventions**: [`docs/architecture.md`](docs/architecture.md). **Run / debug workflow** (no-picker F5 attach): [`docs/debugging.md`](docs/debugging.md).
 
 ## Prerequisites
 
