@@ -58,7 +58,8 @@ public sealed class ShellAppConfig
         bool fogSlidingMaskEnabled,
         bool largeMapMode,
         int fogMaskWindowCells,
-        int fogMaskRecenterMarginCells)
+        int fogMaskRecenterMarginCells,
+        float startupRevealScale)
     {
         CellSizePx = cellSizePx;
         DefaultMapWidthCells = defaultMapWidthCells;
@@ -92,6 +93,7 @@ public sealed class ShellAppConfig
         LargeMapMode = largeMapMode;
         FogMaskWindowCells = fogMaskWindowCells;
         FogMaskRecenterMarginCells = fogMaskRecenterMarginCells;
+        StartupRevealScale = startupRevealScale;
     }
 
     public float CellSizePx { get; }
@@ -181,11 +183,19 @@ public sealed class ShellAppConfig
     /// <summary>Recenter sliding fog mask when the anchor comes within this many cells of the mask edge.</summary>
     public int FogMaskRecenterMarginCells { get; }
 
+    /// <summary>
+    /// Dimensionless scale for the <i>first</i> fog reveal only: effective radius is at least
+    /// <c>startup_reveal_scale</c> × (internal baseline from chunk size). Player UI should describe this as
+    /// “starting area size” (e.g. 0.5×–3×), not raw cell counts.
+    /// </summary>
+    public float StartupRevealScale { get; }
+
     public static ShellAppConfig LoadOrDefault()
     {
         const float defCell = 32f;
-        const int defW = 2048;
-        const int defH = 1024;
+        // Human-scale cold start (stress tests: raise in config.ini or enable large_map_mode).
+        const int defW = 256;
+        const int defH = 256;
         const float defSpeed = 220f * 1.15f;
         const float defZMin = 0.35f;
         const float defZMax = 1.75f;
@@ -215,6 +225,7 @@ public sealed class ShellAppConfig
         const bool defLargeMapMode = false;
         const int defFogMaskWindowCells = 256;
         const int defFogMaskRecenterMarginCells = 48;
+        const float defStartupRevealScale = 1.0f;
 
         var cf = new ConfigFile();
         var err = cf.Load(Path);
@@ -226,7 +237,7 @@ public sealed class ShellAppConfig
                 defFogVisualUpdateHz, defFogRevealLerpSpeed, defFogBrushHardCoreRatio, defFogBrushFeatherExponent,
                 defFogEdgeWidthCells, defFogEdgeSoftness, defFogEdgeSamples, defRenderScale, defMaxFps, defVsyncMode,
                 defStartupUseJsonSample, defStartupSeed, defStartupLandPercent, defFogSlidingMaskEnabled, defLargeMapMode,
-                defFogMaskWindowCells, defFogMaskRecenterMarginCells);
+                defFogMaskWindowCells, defFogMaskRecenterMarginCells, defStartupRevealScale);
         }
 
         float F(string key, float d) =>
@@ -273,7 +284,8 @@ public sealed class ShellAppConfig
             B("fog_sliding_mask_enabled", defFogSlidingMaskEnabled),
             largeMapMode,
             Mathf.Clamp(I("fog_mask_window_cells", defFogMaskWindowCells), 32, 2048),
-            Mathf.Clamp(I("fog_mask_recenter_margin_cells", defFogMaskRecenterMarginCells), 8, 1024));
+            Mathf.Clamp(I("fog_mask_recenter_margin_cells", defFogMaskRecenterMarginCells), 8, 1024),
+            Mathf.Clamp(F("startup_reveal_scale", defStartupRevealScale), 0.25f, 4f));
     }
 
     public static Error SaveRuntimeShellSettings(

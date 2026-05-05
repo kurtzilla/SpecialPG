@@ -1,10 +1,10 @@
 ﻿# Shell Feature Revision Log
 
-Revision: 21
-TimestampUtc: 2026-05-05T17:09:53.5910629Z
+Revision: 27
+TimestampUtc: 2026-05-05T19:45:54.2146820Z
 
 Highlights:
-- config.ini shell tuning; Camera2D + continuous WASD; zoom (wheel, =/-, keypad); upper-right world XY (2 decimals).
+- config.ini shell tuning; Camera2D + discrete WASD sub-tile steps; zoom (wheel, =/-, keypad); upper-right world XY (2 decimals).
 - Grid: world origin; darker mid-grey lines; viewport culling; JSON defaults from config when no file.
 - Debug placeholders: seeded scatter (blocked tiles, extra stairs, sample path for Paths toggle).
 - F5 debug overlay: round toggles (upper-left); walkability / links / ray / paths.
@@ -23,4 +23,9 @@ Highlights:
 - Fog: GPU mask + shader overlay path (world-space texture) with CPU legacy toggle on F6.
 - Pause menu: Map generator / Map editor (shared land-water UI); GameRoot.ApplyMapFromWorkbench + MapSaveEnvelope types.
 - Cold start: procedural map from config.ini startup_seed / startup_land_percent (startup_use_json_sample for JSON-first dev).
-- TileTraversal: water TileKind is never walkable (fixes JSON maps with flags=0 on water).
+- TileTraversal: water surface (elevation below threshold) is never walkable.
+- Sub-tile grid (16×16 per cell): Core TryStepSubTile + SubTileTraversal; shell foot collision + actor sync use fractional cell position.
+- WASD: discrete one sub-tile step per key event (incl. repeat); continuous pixel glide removed from ShellPlayer.
+- Fog reveal: float actor center + land-only sub sampling (Core + GPU mask) so shorelines follow noise, not whole tiles.
+- Milestone 7: TerrainVisualColor + subdivided board draw + workbench preview sample continuous noise for coast/hill tint.
+- Milestone 8: MapIntegrity.ValidateModification / ValidateVerticalLink for local link walkability without full-map scan.

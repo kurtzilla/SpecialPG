@@ -19,10 +19,15 @@ public partial class GameRoot : Node2D
     private const string ShellRevisionLogPath = "res://../../docs/shell-feature-revision-log.md";
 
     /// <summary>Bump when you add user-visible shell behavior; add a line to <see cref="ShellFeatureChangelogLines"/>.</summary>
-    private const int ShellFeatureRevision = 27;
+    private const int ShellFeatureRevision = 28;
 
     /// <summary>First fog reveal after session start uses this multiplier on configured half-extents (linear per axis).</summary>
     private const int InitialFogRevealHalfExtentMultiplier = 1;
+
+    /// <summary>Internal baseline (cell units) for <see cref="ShellAppConfig.StartupRevealScale"/>; k × max(chunkW, chunkH). Not shown in player UI.</summary>
+    private const float StartupRevealBaselineChunkMultiplier = 2.5f;
+
+    private const int StartupZoomNudgeFloorCellSpan = 512;
 
     private static readonly string[] ShellFeatureChangelogLines =
     {
@@ -34,7 +39,7 @@ public partial class GameRoot : Node2D
         "Core WorldState + walkable tiles + vertical link traversal rules.",
         "HUD: live map stats, source, integrity.",
         "WorldMap JSON load; MapIntegrity errors reject bad files.",
-        "Cold start at world (0,0); fog-of-war reveal (2× half-extents once); shell default map 2048×1024 cells; wheel zoom via unhandled input.",
+        "Cold start at world (0,0); fog-of-war reveal (2× half-extents once); default map size from config.ini (human-scale defaults); wheel zoom via unhandled input.",
         "Root ShellHudLayer: ESC pause menu (Quit first, Resume); HUD off GridMap CanvasLayer.",
         "Upper-right world XY uses fixed 2 decimal places (F2), not 2 significant figures.",
         "Upper-right FPS line above coords; public GameRoot.ShellFps (smoothed).",
@@ -51,6 +56,7 @@ public partial class GameRoot : Node2D
         "Fog reveal: float actor center + land-only sub sampling (Core + GPU mask) so shorelines follow noise, not whole tiles.",
         "Milestone 7: TerrainVisualColor + subdivided board draw + workbench preview sample continuous noise for coast/hill tint.",
         "Milestone 8: MapIntegrity.ValidateModification / ValidateVerticalLink for local link walkability without full-map scan.",
+        "Cold start visibility: smaller default map; fog board configured before first reveal; startup_reveal_scale widens first fog stamp (dimensionless); HUD map size line.",
     };
 
     private static readonly Color GridLineColor = new(0.17f, 0.18f, 0.21f, 0.62f);
@@ -401,13 +407,16 @@ public partial class GameRoot : Node2D
             _world.SetActorCellFromShell(walkGx, walkGy, _world.ActorZ);
         }
 
+        ConfigureFogOverlayForActiveFloor();
+        // Prime GPU fog before Snap so the first reveal uses startup boost while _fogFirstRevealApplied is still false;
+        // Snap's SyncActorFromPlayerFoot calls ApplyFogAroundActor (CPU + GPU) with the same actor center.
+        PrimeInitialFogVisual();
         if (_shellPlayer is not null)
         {
             SnapPlayerToActorCell();
         }
 
-        ConfigureFogOverlayForActiveFloor();
-        PrimeInitialFogVisual();
+        MaybeNudgeStartupZoomForLargeFloor();
         RefreshShellHud();
         if (logBootLine)
         {
@@ -1373,8 +1382,10 @@ public partial class GameRoot : Node2D
             return;
         }
 
+        var mapLine =
+            $"Map {_world.Map.Width}×{_world.Map.Height} — WASD to move, wheel to zoom";
         _shellHud.SetBootText(
-            "WASD — sub-tile step (hold to repeat)   |   Wheel / = - / keypad +/- — zoom   |   E / Enter — link   |   [ ] / PgUp/PgDn — floor   |   F5 — debug   |   F6 — fog mode   |   Ctrl+Z — undo config   |   ESC — pause / Quit");
+            $"{mapLine}\nWASD — sub-tile step (hold to repeat)   |   Wheel / = - / keypad +/- — zoom   |   E / Enter — link   |   [ ] / PgUp/PgDn — floor   |   F5 — debug   |   F6 — fog mode   |   Ctrl+Z — undo config   |   ESC — pause / Quit");
         _shellHud.SetRevisionReadout($"REV {ShellFeatureRevision}");
     }
 
@@ -1689,14 +1700,10 @@ public partial class GameRoot : Node2D
     private void ApplyFogAroundActor()
     {
         var isInitialReveal = !_fogFirstRevealApplied;
-        var mult = isInitialReveal ? InitialFogRevealHalfExtentMultiplier : 1;
-        _fogFirstRevealApplied = true;
-        var halfW = Math.Max(0, _shell.FogRevealHalfWidthCells) * mult;
-        var halfH = Math.Max(0, _shell.FogRevealHalfHeightCells) * mult;
-        var radius = (float)Math.Max(halfW, halfH);
         var slice = ActiveFloorSlice;
         var cx = SubTileTraversal.SubCellWorldX(_world.ActorX, _world.ActorSubX);
         var cy = SubTileTraversal.SubCellWorldY(_world.ActorY, _world.ActorSubY);
+        var radius = ComputeFogRevealRadiusCells(cx, cy, slice, isInitialReveal);
         _world.Fog.ApplyCircleSubTerrainAware(0, slice.Z, cx, cy, radius, _world.Map, _world.TerrainEvaluator,
             slice.MinX, slice.MinY, slice.Width, slice.Height);
         _fogOverlayRenderer?.EnsureFloorMask(slice.Z, slice.MinX, slice.MinY, slice.Width, slice.Height);
@@ -1707,6 +1714,7 @@ public partial class GameRoot : Node2D
         {
             // Spawn should start with visible reveal immediately, not after interpolation catches up.
             _fogOverlayRenderer?.SnapDisplayToTarget(slice.Z);
+            _fogFirstRevealApplied = true;
         }
     }
 
@@ -1718,9 +1726,9 @@ public partial class GameRoot : Node2D
         }
 
         var slice = ActiveFloorSlice;
-        var radius = (float)Math.Max(_shell.FogRevealHalfWidthCells, _shell.FogRevealHalfHeightCells);
         var cx = SubTileTraversal.SubCellWorldX(_world.ActorX, _world.ActorSubX);
         var cy = SubTileTraversal.SubCellWorldY(_world.ActorY, _world.ActorSubY);
+        var radius = ComputeFogRevealRadiusCells(cx, cy, slice, applyStartupFirstRevealBoost: !_fogFirstRevealApplied);
         _fogOverlayRenderer.EnsureFloorMask(slice.Z, slice.MinX, slice.MinY, slice.Width, slice.Height);
         _fogOverlayRenderer.SyncSlidingMaskAnchor(slice.Z, _world.ActorX, _world.ActorY, _world, 0);
         _fogOverlayRenderer.SetActiveFloor(slice.Z);
@@ -1780,6 +1788,54 @@ public partial class GameRoot : Node2D
                 DrawRect(rect, _fogVisualColor, true);
             }
         }
+    }
+
+    private static float ClampFogRevealRadiusToFloor(float radiusCells, float cx, float cy, FloorSlice slice)
+    {
+        var maxEdge = Mathf.Min(
+            Mathf.Min(cx - slice.MinX, slice.MinX + slice.Width - cx),
+            Mathf.Min(cy - slice.MinY, slice.MinY + slice.Height - cy));
+        return Mathf.Clamp(radiusCells, 0.5f, Mathf.Max(0.5f, maxEdge - 0.01f));
+    }
+
+    private float ComputeFogRevealRadiusCells(float cx, float cy, FloorSlice slice, bool applyStartupFirstRevealBoost)
+    {
+        var mult = applyStartupFirstRevealBoost ? InitialFogRevealHalfExtentMultiplier : 1;
+        var halfW = Math.Max(0, _shell.FogRevealHalfWidthCells) * mult;
+        var halfH = Math.Max(0, _shell.FogRevealHalfHeightCells) * mult;
+        var baseRadius = (float)Math.Max(halfW, halfH);
+        if (!applyStartupFirstRevealBoost)
+        {
+            return ClampFogRevealRadiusToFloor(baseRadius, cx, cy, slice);
+        }
+
+        var r0 = StartupRevealBaselineChunkMultiplier *
+                 Math.Max(_shell.ChunkWidthCells, _shell.ChunkHeightCells);
+        var boosted = Mathf.Max(baseRadius, r0 * _shell.StartupRevealScale);
+        return ClampFogRevealRadiusToFloor(boosted, cx, cy, slice);
+    }
+
+    private void MaybeNudgeStartupZoomForLargeFloor()
+    {
+        if (_camera2D is null)
+        {
+            return;
+        }
+
+        var floor = ActiveFloorSlice;
+        if (Mathf.Max(floor.Width, floor.Height) <= StartupZoomNudgeFloorCellSpan)
+        {
+            return;
+        }
+
+        var z = Mathf.Clamp(_zoom.X - _shell.ZoomStep, _shell.ZoomMin, _shell.ZoomMax);
+        if (z >= _zoom.X - 1e-5f)
+        {
+            return;
+        }
+
+        _zoom = new Vector2(z, z);
+        _camera2D.Zoom = _zoom;
     }
 
     private void ConfigureFogOverlayForActiveFloor()
