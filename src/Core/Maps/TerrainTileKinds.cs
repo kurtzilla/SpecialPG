@@ -1,6 +1,6 @@
 namespace SpecialPG.Core.Maps;
 
-/// <summary>Well-known <see cref="TileData.TileKind"/> values for terrain classification (Shell graphics map by kind id).
+/// <summary>Legacy numeric ids; terrain is now <see cref="TileCell"/> + <see cref="TerrainNoiseConfig"/>. Retained for docs / migration notes.
 /// </summary>
 public static class TerrainTileKinds
 {

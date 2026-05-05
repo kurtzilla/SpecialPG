@@ -70,7 +70,7 @@ public partial class DebugGridOverlay : Node2D
 
                 var tile = floor.Get(gx, gy);
                 var rect = _grid!.ShellGetCellRect(gx, gy);
-                if (!TileTraversal.IsWalkable(tile))
+                if (!TileTraversal.IsWalkable(tile, _grid.ShellWorldMap.TerrainConfig))
                 {
                     DrawRect(rect, new Color(0.92f, 0.2f, 0.85f, 0.42f), true);
                     DrawRect(rect, new Color(1f, 0.4f, 0.95f, 0.95f), false, 2f);

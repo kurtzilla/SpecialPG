@@ -395,6 +395,9 @@ public partial class ShellHudLayer : Control
 
     public void SetPlayerPositionText(string text) => _playerPosLabel.Text = text;
 
+    /// <summary>When true, board-level game input (e.g. discrete sub-steps) should be ignored.</summary>
+    public bool IsModalHudOpen => _pauseMenuRoot.Visible || _mapWorkbench.Visible;
+
     /// <summary>Returns true if ESC closed the map workbench (do not toggle pause).</summary>
     public bool TryConsumeEscForMapWorkbench()
     {

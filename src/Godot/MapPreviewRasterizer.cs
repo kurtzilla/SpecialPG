@@ -2,7 +2,7 @@
 using System;
 using Godot;
 using SpecialPG.Core.Maps;
-using CoreTileData = SpecialPG.Core.Maps.TileData;
+using SpecialPG.Core.Maps.Noise;
 
 /// <summary>
 /// Top-down RGBA snapshot of a <see cref="FloorSlice"/> for the map workbench preview (Shell-only).
@@ -12,9 +12,11 @@ public static class MapPreviewRasterizer
     /// <summary>
     /// Downsample so the longest map edge maps to at most <paramref name="maxCellsOnLongEdge"/> pixels (nearest mapping).
     /// </summary>
-    public static ImageTexture RasterizeFloor(FloorSlice floor, int maxCellsOnLongEdge = 128)
+    public static ImageTexture RasterizeFloor(FloorSlice floor, TerrainNoiseConfig terrain,
+        int maxCellsOnLongEdge = 128)
     {
         ArgumentNullException.ThrowIfNull(floor);
+        var eval = new TerrainEvaluator(terrain);
         var w = floor.Width;
         var h = floor.Height;
         if (w <= 0 || h <= 0)
@@ -39,24 +41,14 @@ public static class MapPreviewRasterizer
                     gy = floor.MinY;
 
                 var t = floor.Get(gx, gy);
-                var c = TileToColor(t);
-                img.SetPixel(px, py, c);
+                var wx = gx + 0.5f;
+                var wy = gy + 0.5f;
+                var rgb = TerrainVisualColor.AtWorld(wx, wy, t, eval, terrain);
+                img.SetPixel(px, py, new Color(rgb.R, rgb.G, rgb.B, 1f));
             }
         }
 
         var tex = ImageTexture.CreateFromImage(img);
         return tex;
-    }
-
-    private static Color TileToColor(CoreTileData t)
-    {
-        if (t.TileKind == TerrainTileKinds.Water)
-            return new Color(0.25f, 0.55f, 0.92f, 1f);
-        if ((t.Flags & TileFlags.Blocked) != 0 && t.TileKind != TerrainTileKinds.Water)
-            return new Color(0.20f, 0.45f, 0.24f, 1f);
-        if (t.TileKind == TerrainTileKinds.Land || t.TileKind is >= 1 and <= 8)
-            return new Color(0.32f, 0.72f, 0.38f, 1f);
-
-        return new Color(0.5f, 0.52f, 0.55f, 1f);
     }
 }

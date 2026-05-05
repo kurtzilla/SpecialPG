@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using SpecialPG.Core.Maps.Noise;
 
 namespace SpecialPG.Core.Maps;
 
@@ -64,6 +65,13 @@ public static class WorldMapJson
         public int MinY { get; set; }
         public int ChunkWidth { get; set; }
         public int ChunkHeight { get; set; }
+
+        /// <summary>Stored in <see cref="TerrainNoiseConfig.Seed"/> after load.</summary>
+        public int TerrainSeed { get; set; }
+
+        /// <summary>Stored in <see cref="TerrainNoiseConfig.RulesetVersion"/> after load.</summary>
+        public int TerrainRulesetVersion { get; set; }
+
         public List<FloorDto> Floors { get; set; } = new();
         public List<VerticalLinkDto> VerticalLinks { get; set; } = new();
 
@@ -77,6 +85,8 @@ public static class WorldMapJson
                 MinY = map.MinY,
                 ChunkWidth = map.ChunkWidth,
                 ChunkHeight = map.ChunkHeight,
+                TerrainSeed = map.TerrainConfig.Seed,
+                TerrainRulesetVersion = map.TerrainConfig.RulesetVersion,
             };
             foreach (var z in map.PresentFloorIndices())
             {
@@ -104,6 +114,10 @@ public static class WorldMapJson
             var chunkH = ChunkHeight > 0 ? ChunkHeight : MapChunkDimensions.DefaultHeight;
 
             var world = new WorldMap(Width, Height, chunkW, chunkH, MinX, MinY);
+            world.TerrainConfig = TerrainNoiseConfig.Default(TerrainSeed) with
+            {
+                RulesetVersion = TerrainRulesetVersion > 0 ? TerrainRulesetVersion : 1,
+            };
             foreach (var floor in Floors)
             {
                 if (floor.Cells.Length != Width * Height)
@@ -113,11 +127,19 @@ public static class WorldMapJson
                 }
 
                 var slice = new FloorSlice(MinX, MinY, Width, Height, floor.Z, chunkW, chunkH);
-                for (var i = 0; i < floor.Cells.Length; i++)
+                slice.SuppressChunkModificationTracking = true;
+                try
                 {
-                    var lx = i % Width;
-                    var ly = i / Width;
-                    slice.Set(MinX + lx, MinY + ly, floor.Cells[i].ToTile());
+                    for (var i = 0; i < floor.Cells.Length; i++)
+                    {
+                        var lx = i % Width;
+                        var ly = i / Width;
+                        slice.Set(MinX + lx, MinY + ly, floor.Cells[i].ToCell());
+                    }
+                }
+                finally
+                {
+                    slice.SuppressChunkModificationTracking = false;
                 }
 
                 world.SetFloor(slice);
@@ -133,17 +155,17 @@ public static class WorldMapJson
     private sealed class FloorDto
     {
         public int Z { get; set; }
-        public TileDataDto[] Cells { get; set; } = Array.Empty<TileDataDto>();
+        public TileCellDto[] Cells { get; set; } = Array.Empty<TileCellDto>();
 
         public static FloorDto FromSlice(FloorSlice slice)
         {
-            var cells = new TileDataDto[slice.Width * slice.Height];
+            var cells = new TileCellDto[slice.Width * slice.Height];
             var i = 0;
             for (var ly = 0; ly < slice.Height; ly++)
             {
                 for (var lx = 0; lx < slice.Width; lx++)
                 {
-                    cells[i++] = TileDataDto.FromTile(slice.Get(slice.MinX + lx, slice.MinY + ly));
+                    cells[i++] = TileCellDto.FromCell(slice.Get(slice.MinX + lx, slice.MinY + ly));
                 }
             }
 
@@ -151,17 +173,33 @@ public static class WorldMapJson
         }
     }
 
-    private sealed class TileDataDto
+    private sealed class TileCellDto
     {
-        public ushort TileKind { get; set; }
+        public byte Elevation { get; set; }
+        public byte Moisture { get; set; }
+        public TerrainOverride Override { get; set; }
         public byte Flags { get; set; }
         public byte Variant { get; set; }
 
-        public TileData ToTile() =>
-            new() { TileKind = TileKind, Flags = Flags, Variant = Variant };
+        public TileCell ToCell() =>
+            new()
+            {
+                ElevationBucket = Elevation,
+                MoistureBucket = Moisture,
+                Override = Override,
+                Flags = Flags,
+                Variant = Variant,
+            };
 
-        public static TileDataDto FromTile(TileData t) =>
-            new() { TileKind = t.TileKind, Flags = t.Flags, Variant = t.Variant };
+        public static TileCellDto FromCell(TileCell c) =>
+            new()
+            {
+                Elevation = c.ElevationBucket,
+                Moisture = c.MoistureBucket,
+                Override = c.Override,
+                Flags = c.Flags,
+                Variant = c.Variant,
+            };
     }
 
     private sealed class VerticalLinkDto

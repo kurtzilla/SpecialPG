@@ -1,3 +1,5 @@
+using SpecialPG.Core.Maps.Noise;
+
 namespace SpecialPG.Core.Maps;
 
 /// <summary>
@@ -5,19 +7,22 @@ namespace SpecialPG.Core.Maps;
 /// </summary>
 public static class VerticalLinkTraversal
 {
-    public static bool CanTraverseOutgoing(VerticalLink link, TileData fromTile, TileData toTile)
+    public static bool CanTraverseOutgoing(VerticalLink link, TileCell fromTile, TileCell toTile,
+        in TerrainNoiseConfig terrain)
     {
         _ = link.Kind;
-        return TileTraversal.IsWalkable(fromTile) && TileTraversal.IsWalkable(toTile);
+        return TileTraversal.IsWalkable(fromTile, terrain) && TileTraversal.IsWalkable(toTile, terrain);
     }
 
-    public static bool CanTraverseReverse(VerticalLink link, TileData currentTile, TileData destinationTile)
+    public static bool CanTraverseReverse(VerticalLink link, TileCell currentTile, TileCell destinationTile,
+        in TerrainNoiseConfig terrain)
     {
         if (link.OneWay)
         {
             return false;
         }
 
-        return TileTraversal.IsWalkable(currentTile) && TileTraversal.IsWalkable(destinationTile);
+        return TileTraversal.IsWalkable(currentTile, terrain) &&
+               TileTraversal.IsWalkable(destinationTile, terrain);
     }
 }

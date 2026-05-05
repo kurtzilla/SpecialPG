@@ -1,3 +1,5 @@
+using SpecialPG.Core.Maps.Noise;
+
 namespace SpecialPG.Core.Maps;
 
 /// <summary>
@@ -24,7 +26,11 @@ public sealed class WorldMap
         ChunkHeight = chunkHeight;
         MinX = minX;
         MinY = minY;
+        TerrainConfig = TerrainNoiseConfig.Default(0);
     }
+
+    /// <summary>Noise thresholds and seed used with <see cref="TileCell"/> for walkability and water rules.</summary>
+    public TerrainNoiseConfig TerrainConfig { get; set; }
 
     /// <summary>
     /// Unbounded world (streaming): <see cref="Width"/> and <see cref="Height"/> are 0; floors use unbounded <see cref="FloorSlice"/> ctor.
@@ -43,6 +49,7 @@ public sealed class WorldMap
             ChunkHeight = chunkHeight,
             MinX = minX,
             MinY = minY,
+            TerrainConfig = TerrainNoiseConfig.Default(0),
         };
     }
 
@@ -79,12 +86,16 @@ public sealed class WorldMap
     public FloorSlice GetOrCreateFloor(int z)
     {
         if (_floors.TryGetValue(z, out var existing))
+        {
+            EnsureUnboundedFloorEvaluator(existing);
             return existing;
+        }
 
         var slice = IsBounded
             ? new FloorSlice(MinX, MinY, Width, Height, z, ChunkWidth, ChunkHeight)
             : new FloorSlice(MinX, MinY, z, ChunkWidth, ChunkHeight);
         _floors[z] = slice;
+        EnsureUnboundedFloorEvaluator(slice);
         return slice;
     }
 
@@ -109,6 +120,13 @@ public sealed class WorldMap
             throw new ArgumentException("Floor slice MinX/MinY must match map origin.", nameof(slice));
 
         _floors[slice.Z] = slice;
+        EnsureUnboundedFloorEvaluator(slice);
+    }
+
+    private void EnsureUnboundedFloorEvaluator(FloorSlice slice)
+    {
+        if (!IsBounded && slice.TerrainEvaluator is null)
+            slice.TerrainEvaluator = new TerrainEvaluator(TerrainConfig);
     }
 
     public void AddVerticalLink(VerticalLink link) => _verticalLinks.Add(link);
@@ -148,5 +166,15 @@ public sealed class WorldMap
 
         link = default;
         return false;
+    }
+
+    /// <summary>Clears <see cref="FloorSlice.ModifiedChunkCount"/> markers on every present floor (e.g. after a successful save).</summary>
+    public void ClearChunkModificationTrackingOnAllFloors()
+    {
+        foreach (var z in PresentFloorIndices())
+        {
+            if (TryGetFloor(z, out var floor) && floor is not null)
+                floor.ClearChunkModificationTracking();
+        }
     }
 }

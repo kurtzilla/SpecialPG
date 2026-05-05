@@ -248,6 +248,12 @@ public partial class FogOverlayRenderer : Node2D
                 {
                     for (var px = 0; px < ppc; px++)
                     {
+                        var worldX = gx + (px + 0.5f) / ppc;
+                        var worldY = gy + (ppc - py - 0.5f) / ppc;
+                        if (!world.Fog.IsWorldPointRevealed(playerId, floorZ, worldX, worldY, fmin.X, fmin.Y, fsz.X,
+                                fsz.Y))
+                            continue;
+
                         var ipx = lx * ppc + px;
                         var ipy = flippedY * ppc + py;
                         floorMask.TargetImage.SetPixel(ipx, ipy, new Color(1f, 1f, 1f, 1f));
@@ -409,6 +415,120 @@ public partial class FogOverlayRenderer : Node2D
         {
             QueueRedraw();
         }
+    }
+
+    /// <summary>
+    /// Same footprint as <see cref="StampRevealCircleAtGlobal"/> but only clears fog where Core land visibility allows
+    /// (matches <see cref="FogOfWarState.ApplyCircleSubTerrainAware"/> shoreline behavior).
+    /// </summary>
+    public void StampRevealCircleTerrainAwareAtGlobal(int floorZ, float centerGlobalX, float centerGlobalY,
+        float radiusCells, WorldMap map, ITerrainEvaluator evaluator)
+    {
+        if (!_masksByFloorZ.TryGetValue(floorZ, out var floorMask) ||
+            !_floorCellMins.TryGetValue(floorZ, out var min) ||
+            !_floorCellSizes.TryGetValue(floorZ, out var size))
+        {
+            return;
+        }
+
+        var hasMaskOrg = _maskOriginGlobalByFloor.TryGetValue(floorZ, out var maskOrg);
+        var hasMcells = _maskAllocatedCellsByFloor.TryGetValue(floorZ, out var mcells);
+        var sliding = _fogSlidingMaskEnabled &&
+                      (_largeMapMode || (long)size.X * size.Y >= 4_000_000L) &&
+                      hasMaskOrg &&
+                      hasMcells;
+
+        float localCenterX;
+        float localCenterY;
+        float flippedCellY;
+        if (sliding)
+        {
+            localCenterX = centerGlobalX - maskOrg.X;
+            localCenterY = centerGlobalY - maskOrg.Y;
+            flippedCellY = (mcells.Y - 1) - localCenterY;
+        }
+        else
+        {
+            localCenterX = centerGlobalX - min.X;
+            localCenterY = centerGlobalY - min.Y;
+            flippedCellY = (size.Y - 1) - localCenterY;
+        }
+
+        var centerPxX = localCenterX * _pixelsPerCell;
+        var centerPxY = flippedCellY * _pixelsPerCell;
+        var radiusPx = Mathf.Max(0.5f, radiusCells * _pixelsPerCell);
+        var x0 = Mathf.Clamp(Mathf.FloorToInt(centerPxX - radiusPx), 0, floorMask.Width - 1);
+        var x1 = Mathf.Clamp(Mathf.CeilToInt(centerPxX + radiusPx), 0, floorMask.Width - 1);
+        var y0 = Mathf.Clamp(Mathf.FloorToInt(centerPxY - radiusPx), 0, floorMask.Height - 1);
+        var y1 = Mathf.Clamp(Mathf.CeilToInt(centerPxY + radiusPx), 0, floorMask.Height - 1);
+        var radiusSq = radiusPx * radiusPx;
+
+        var hardCorePx = radiusPx * _brushHardCoreRatio;
+        var featherPx = MathF.Max(0.001f, radiusPx - hardCorePx);
+
+        for (var py = y0; py <= y1; py++)
+        {
+            var dy = (py + 0.5f) - centerPxY;
+            for (var px = x0; px <= x1; px++)
+            {
+                var dx = (px + 0.5f) - centerPxX;
+                var d2 = dx * dx + dy * dy;
+                if (d2 > radiusSq)
+                    continue;
+
+                var worldX = centerGlobalX + dx / _pixelsPerCell;
+                var worldY = centerGlobalY - dy / _pixelsPerCell;
+                if (!TrySampleLandFogReveal(map, floorZ, worldX, worldY, evaluator))
+                    continue;
+
+                var d = Mathf.Sqrt(d2);
+                float brushAlpha;
+                if (d <= hardCorePx)
+                {
+                    brushAlpha = 1f;
+                }
+                else
+                {
+                    var t = Mathf.Clamp((radiusPx - d) / featherPx, 0f, 1f);
+                    brushAlpha = Mathf.Pow(t, _brushFeatherExponent);
+                }
+
+                var prev = floorMask.TargetImage.GetPixel(px, py);
+                if (brushAlpha > prev.A)
+                {
+                    floorMask.TargetImage.SetPixel(px, py, new Color(1f, 1f, 1f, brushAlpha));
+                }
+            }
+        }
+
+        floorMask.MarkDirty(x0, y0, x1, y1);
+        if (floorZ == _activeFloorZ)
+        {
+            QueueRedraw();
+        }
+    }
+
+    private static bool TrySampleLandFogReveal(WorldMap map, int floorZ, float worldX, float worldY,
+        ITerrainEvaluator evaluator)
+    {
+        if (!map.TryGetFloor(floorZ, out var floor) || floor is null)
+            return false;
+
+        var gx = (int)Math.Floor(worldX);
+        var gy = (int)Math.Floor(worldY);
+        if (!floor.Contains(gx, gy))
+            return false;
+
+        var tile = floor.Get(gx, gy);
+        if ((tile.Flags & TileFlags.Blocked) != 0)
+            return false;
+        if (tile.Override == TerrainOverride.ForceWater)
+            return false;
+        if (tile.Override == TerrainOverride.ForceLand)
+            return true;
+
+        var sample = evaluator.EvaluateAt(worldX, worldY);
+        return !evaluator.IsWater(sample);
     }
 
     public void AdvanceRevealAnimation(double deltaSeconds)

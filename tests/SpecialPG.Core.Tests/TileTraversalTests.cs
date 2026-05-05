@@ -1,24 +1,30 @@
 using SpecialPG.Core.Maps;
+using SpecialPG.Core.Maps.Noise;
 using Xunit;
 
 namespace SpecialPG.Core.Tests;
 
 public class TileTraversalTests
 {
-    [Fact]
-    public void Water_is_never_walkable_even_without_blocked_flag()
-    {
-        var waterOpenFlags = new TileData { TileKind = TerrainTileKinds.Water, Flags = 0, Variant = 0 };
-        Assert.False(TileTraversal.IsWalkable(waterOpenFlags));
+    private static readonly TerrainNoiseConfig Config = TerrainNoiseConfig.Default(0);
 
-        var waterBlocked = new TileData { TileKind = TerrainTileKinds.Water, Flags = TileFlags.Blocked, Variant = 0 };
-        Assert.False(TileTraversal.IsWalkable(waterBlocked));
+    [Fact]
+    public void Water_elevation_is_never_walkable_even_when_flags_omit_blocked()
+    {
+        var waterOpenFlags = TileCell.SyntheticWater() with { Flags = 0 };
+        Assert.False(TileTraversal.IsWalkable(waterOpenFlags, Config));
     }
 
     [Fact]
-    public void Walkable_land_requires_no_blocked_flag()
+    public void Blocked_flag_is_not_walkable()
     {
-        Assert.True(TileTraversal.IsWalkable(new TileData { TileKind = TerrainTileKinds.Land, Flags = 0, Variant = 0 }));
-        Assert.False(TileTraversal.IsWalkable(new TileData { TileKind = TerrainTileKinds.Land, Flags = TileFlags.Blocked, Variant = 0 }));
+        var blocked = TileCell.SyntheticLand() with { Flags = TileFlags.Blocked };
+        Assert.False(TileTraversal.IsWalkable(blocked, Config));
+    }
+
+    [Fact]
+    public void Mid_elevation_land_is_walkable_when_not_blocked()
+    {
+        Assert.True(TileTraversal.IsWalkable(TileCell.SyntheticLand(), Config));
     }
 }

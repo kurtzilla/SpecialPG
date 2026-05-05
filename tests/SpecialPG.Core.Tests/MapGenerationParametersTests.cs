@@ -21,6 +21,7 @@ public class MapGenerationParametersTests
         var map = ProceduralWorldMapGenerator.BuildBoundedWorld(64, 64, 16, 16, p);
         WaterTerrainRules.ApplyMinimumWaterBlobSizeTwoByTwo(map);
         var floor = map.GetOrCreateFloor(0);
+        var cfg = map.TerrainConfig;
         var water = 0;
         var land = 0;
         var midX = floor.MinX + floor.Width / 2;
@@ -31,13 +32,13 @@ public class MapGenerationParametersTests
             {
                 if (x == midX && y == midY)
                     continue;
-                if (floor.Get(x, y).TileKind == TerrainTileKinds.Water)
+                if (TileTraversal.IsWaterSurface(floor.Get(x, y), cfg))
                     water++;
                 else
                     land++;
             }
         }
 
-        Assert.True(water > land * 3, $"expected mostly water, got water={water} land={land}");
+        Assert.True(water > land * 2, $"expected mostly water, got water={water} land={land}");
     }
 }

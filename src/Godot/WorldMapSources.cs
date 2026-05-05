@@ -2,7 +2,7 @@
 using System;
 using Godot;
 using SpecialPG.Core.Maps;
-using CoreTileData = SpecialPG.Core.Maps.TileData;
+using CoreTileCell = SpecialPG.Core.Maps.TileCell;
 
 namespace SpecialPG;
 
@@ -91,7 +91,7 @@ public static class SampleWorldMapBootstrap
         FillCheckerboard(map.GetOrCreateFloor(1), 1);
         var bx = map.MinX + map.Width / 2;
         var by = map.MinY + map.Height / 2;
-        map.GetOrCreateFloor(0).Set(bx, by, new CoreTileData { TileKind = 1, Flags = TileFlags.Blocked, Variant = 0 });
+        map.GetOrCreateFloor(0).Set(bx, by, CoreTileCell.SyntheticLand() with { Flags = TileFlags.Blocked });
         map.AddVerticalLink(new VerticalLink
         {
             FromX = map.MinX,
@@ -114,8 +114,15 @@ public static class SampleWorldMapBootstrap
             {
                 var gx = floor.MinX + lx;
                 var gy = floor.MinY + ly;
-                var kind = (ushort)((((lx + ly + zBias) % 2) + 1));
-                floor.Set(gx, gy, new CoreTileData { TileKind = kind, Flags = 0, Variant = 0 });
+                var elev = (byte)(130 + (((lx + ly + zBias) % 2) * 40));
+                floor.Set(gx, gy, new CoreTileCell
+                {
+                    ElevationBucket = elev,
+                    MoistureBucket = 128,
+                    Override = TerrainOverride.None,
+                    Flags = 0,
+                    Variant = (byte)(((lx + ly + zBias) % 2) * 4),
+                });
             }
         }
     }

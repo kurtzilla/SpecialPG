@@ -206,7 +206,7 @@ public partial class MapWorkbenchPanel : Control
         if (mode == MapWorkbenchMode.EditCurrentMap)
         {
             var floor0 = _gameRoot.ShellWorldMap.GetOrCreateFloor(0);
-            _previewRect.Texture = MapPreviewRasterizer.RasterizeFloor(floor0);
+            _previewRect.Texture = MapPreviewRasterizer.RasterizeFloor(floor0, _gameRoot.ShellWorldMap.TerrainConfig);
         }
         else
         {
@@ -242,7 +242,8 @@ public partial class MapWorkbenchPanel : Control
         var p = BuildParametersFromUi();
         var previewMap = ProceduralWorldMapGenerator.BuildBoundedWorld(128, 128, 32, 32, p);
         WaterTerrainRules.ApplyMinimumWaterBlobSizeTwoByTwo(previewMap);
-        _previewRect.Texture = MapPreviewRasterizer.RasterizeFloor(previewMap.GetOrCreateFloor(0));
+        _previewRect.Texture =
+            MapPreviewRasterizer.RasterizeFloor(previewMap.GetOrCreateFloor(0), previewMap.TerrainConfig);
     }
 
     private void OnApplyPressed()

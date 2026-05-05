@@ -33,8 +33,7 @@ public class ProceduralWorldMapSourceTests
         {
             for (var x = f0a.MinX; x < f0a.MinX + f0a.Width; x++)
             {
-                Assert.Equal(f0a.Get(x, y).TileKind, f0b.Get(x, y).TileKind);
-                Assert.Equal(f0a.Get(x, y).Flags, f0b.Get(x, y).Flags);
+                Assert.Equal(f0a.Get(x, y), f0b.Get(x, y));
             }
         }
 
@@ -55,8 +54,7 @@ public class ProceduralWorldMapSourceTests
         {
             for (var x = f0a.MinX; x < f0a.MinX + f0a.Width && !anyDiff; x++)
             {
-                if (f0a.Get(x, y).TileKind != f0b.Get(x, y).TileKind ||
-                    f0a.Get(x, y).Flags != f0b.Get(x, y).Flags)
+                if (!f0a.Get(x, y).Equals(f0b.Get(x, y)))
                     anyDiff = true;
             }
         }
