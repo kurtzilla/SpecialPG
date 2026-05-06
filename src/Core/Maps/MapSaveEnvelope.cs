@@ -42,7 +42,7 @@ public sealed class MapSaveEnvelope
     }
 
     /// <summary>
-    /// Hydrates map + entity store into a new <see cref="WorldState"/> (fog is fresh; caller may restore actor pose separately).
+    /// Hydrates map + entity store into a new <see cref="WorldState"/> (caller may restore actor pose separately).
     /// </summary>
     public static bool TryCreateWorldState(MapSaveEnvelope envelope, int actorX, int actorY, int actorZ,
         [NotNullWhen(true)] out WorldState? world, [NotNullWhen(true)] out MapGenerationParameters? generation,

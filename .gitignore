@@ -10,6 +10,9 @@
 *.nupkg
 *.snupkg
 
+# Local debugger helper (written by .scripts/RunGodotDetached.ps1)
+.vscode/godot-detached.pid
+
 # Visual Studio / Rider
 .vs/
 .idea/

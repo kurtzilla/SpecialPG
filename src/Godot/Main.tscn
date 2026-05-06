@@ -6,7 +6,6 @@
 [ext_resource type="Script" path="res://DebugChannelPanel.cs" id="4_panel"]
 [ext_resource type="Script" path="res://ShellPlayer.cs" id="5_player"]
 [ext_resource type="Script" path="res://ShellHudLayer.cs" id="6_shellhud"]
-[ext_resource type="Script" path="res://FogOverlayRenderer.cs" id="7_fogoverlay"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_pick"]
 size = Vector3(64, 0.08, 64)
@@ -71,273 +70,245 @@ theme_override_constants/separation = 6
 
 [node name="DebugTitle" type="Label" parent="ShellUi/ShellHudRoot/LeftHudColumn/DebugChannelPanel/Margin/VBox"]
 layout_mode = 2
+theme_override_font_sizes/font_size = 16
 text = "Debug channels"
 
 [node name="WalkabilityToggle" type="CheckButton" parent="ShellUi/ShellHudRoot/LeftHudColumn/DebugChannelPanel/Margin/VBox"]
 layout_mode = 2
+theme_override_font_sizes/font_size = 16
 text = "Walkability"
 
 [node name="VerticalLinksToggle" type="CheckButton" parent="ShellUi/ShellHudRoot/LeftHudColumn/DebugChannelPanel/Margin/VBox"]
 layout_mode = 2
+theme_override_font_sizes/font_size = 16
 text = "Vertical links"
 
 [node name="RayPickToggle" type="CheckButton" parent="ShellUi/ShellHudRoot/LeftHudColumn/DebugChannelPanel/Margin/VBox"]
 layout_mode = 2
+theme_override_font_sizes/font_size = 16
 text = "Ray pick"
 
 [node name="PathsToggle" type="CheckButton" parent="ShellUi/ShellHudRoot/LeftHudColumn/DebugChannelPanel/Margin/VBox"]
 layout_mode = 2
+theme_override_font_sizes/font_size = 16
 text = "Paths"
 
-[node name="PresetPanelRoot" type="PanelContainer" parent="ShellUi/ShellHudRoot"]
-layout_mode = 0
+[node name="RightPresetStack" type="VBoxContainer" parent="ShellUi/ShellHudRoot"]
+layout_mode = 1
 anchors_preset = 3
 anchor_left = 1.0
 anchor_top = 1.0
 anchor_right = 1.0
 anchor_bottom = 1.0
 offset_left = -236.0
-offset_top = -320.0
+offset_top = -720.0
 offset_right = -16.0
 offset_bottom = -16.0
 grow_horizontal = 0
 grow_vertical = 0
+theme_override_constants/separation = 8
+mouse_filter = 0
+
+[node name="TerrainLegendPanel" type="PanelContainer" parent="ShellUi/ShellHudRoot/RightPresetStack"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 0
+mouse_filter = 0
+
+[node name="Margin" type="MarginContainer" parent="ShellUi/ShellHudRoot/RightPresetStack/TerrainLegendPanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 10
+theme_override_constants/margin_top = 8
+theme_override_constants/margin_right = 10
+theme_override_constants/margin_bottom = 8
+
+[node name="VBox" type="VBoxContainer" parent="ShellUi/ShellHudRoot/RightPresetStack/TerrainLegendPanel/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 5
+
+[node name="LegendTitle" type="Label" parent="ShellUi/ShellHudRoot/RightPresetStack/TerrainLegendPanel/Margin/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.82, 0.86, 0.92, 1)
+theme_override_font_sizes/font_size = 15
+text = "Terrain colors"
+
+[node name="LegendRows" type="VBoxContainer" parent="ShellUi/ShellHudRoot/RightPresetStack/TerrainLegendPanel/Margin/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 3
+
+[node name="PresetPanelRoot" type="PanelContainer" parent="ShellUi/ShellHudRoot/RightPresetStack"]
+layout_mode = 2
+size_flags_horizontal = 3
 custom_minimum_size = Vector2(220, 0)
 mouse_filter = 0
 
-[node name="Margin" type="MarginContainer" parent="ShellUi/ShellHudRoot/PresetPanelRoot"]
+[node name="Margin" type="MarginContainer" parent="ShellUi/ShellHudRoot/RightPresetStack/PresetPanelRoot"]
 layout_mode = 2
 theme_override_constants/margin_left = 8
 theme_override_constants/margin_top = 6
 theme_override_constants/margin_right = 8
 theme_override_constants/margin_bottom = 6
 
-[node name="VBox" type="VBoxContainer" parent="ShellUi/ShellHudRoot/PresetPanelRoot/Margin"]
+[node name="VBox" type="VBoxContainer" parent="ShellUi/ShellHudRoot/RightPresetStack/PresetPanelRoot/Margin"]
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="PerfPresetPanel" type="PanelContainer" parent="ShellUi/ShellHudRoot/PresetPanelRoot/Margin/VBox"]
+[node name="PerfPresetPanel" type="PanelContainer" parent="ShellUi/ShellHudRoot/RightPresetStack/PresetPanelRoot/Margin/VBox"]
 layout_mode = 2
 size_flags_horizontal = 3
 mouse_filter = 0
 
-[node name="Margin" type="MarginContainer" parent="ShellUi/ShellHudRoot/PresetPanelRoot/Margin/VBox/PerfPresetPanel"]
+[node name="Margin" type="MarginContainer" parent="ShellUi/ShellHudRoot/RightPresetStack/PresetPanelRoot/Margin/VBox/PerfPresetPanel"]
 layout_mode = 2
 theme_override_constants/margin_left = 7
 theme_override_constants/margin_top = 5
 theme_override_constants/margin_right = 7
 theme_override_constants/margin_bottom = 5
 
-[node name="VBox" type="VBoxContainer" parent="ShellUi/ShellHudRoot/PresetPanelRoot/Margin/VBox/PerfPresetPanel/Margin"]
+[node name="VBox" type="VBoxContainer" parent="ShellUi/ShellHudRoot/RightPresetStack/PresetPanelRoot/Margin/VBox/PerfPresetPanel/Margin"]
 layout_mode = 2
 theme_override_constants/separation = 6
 
-[node name="PerfHeaderRow" type="HBoxContainer" parent="ShellUi/ShellHudRoot/PresetPanelRoot/Margin/VBox/PerfPresetPanel/Margin/VBox"]
+[node name="PerfHeaderRow" type="HBoxContainer" parent="ShellUi/ShellHudRoot/RightPresetStack/PresetPanelRoot/Margin/VBox/PerfPresetPanel/Margin/VBox"]
 layout_mode = 2
 theme_override_constants/separation = 6
 
-[node name="PerfPresetTitle" type="Label" parent="ShellUi/ShellHudRoot/PresetPanelRoot/Margin/VBox/PerfPresetPanel/Margin/VBox/PerfHeaderRow"]
+[node name="PerfPresetTitle" type="Label" parent="ShellUi/ShellHudRoot/RightPresetStack/PresetPanelRoot/Margin/VBox/PerfPresetPanel/Margin/VBox/PerfHeaderRow"]
 layout_mode = 2
 size_flags_horizontal = 0
+theme_override_font_sizes/font_size = 14
 text = "Perf presets"
 
-[node name="PerfResetBtn" type="Button" parent="ShellUi/ShellHudRoot/PresetPanelRoot/Margin/VBox/PerfPresetPanel/Margin/VBox/PerfHeaderRow"]
+[node name="PerfResetBtn" type="Button" parent="ShellUi/ShellHudRoot/RightPresetStack/PresetPanelRoot/Margin/VBox/PerfPresetPanel/Margin/VBox/PerfHeaderRow"]
 layout_mode = 2
 custom_minimum_size = Vector2(52, 22)
 focus_mode = 0
 mouse_default_cursor_shape = 2
-theme_override_font_sizes/font_size = 12
+theme_override_font_sizes/font_size = 14
 text = "Reset"
 flat = true
 
-[node name="Spacer" type="Control" parent="ShellUi/ShellHudRoot/PresetPanelRoot/Margin/VBox/PerfPresetPanel/Margin/VBox/PerfHeaderRow"]
+[node name="Spacer" type="Control" parent="ShellUi/ShellHudRoot/RightPresetStack/PresetPanelRoot/Margin/VBox/PerfPresetPanel/Margin/VBox/PerfHeaderRow"]
 layout_mode = 2
 size_flags_horizontal = 3
 
-[node name="PerfToggleBtn" type="Button" parent="ShellUi/ShellHudRoot/PresetPanelRoot/Margin/VBox/PerfPresetPanel/Margin/VBox/PerfHeaderRow"]
+[node name="PerfToggleBtn" type="Button" parent="ShellUi/ShellHudRoot/RightPresetStack/PresetPanelRoot/Margin/VBox/PerfPresetPanel/Margin/VBox/PerfHeaderRow"]
 layout_mode = 2
 custom_minimum_size = Vector2(20, 20)
 size_flags_horizontal = 8
 focus_mode = 0
 mouse_default_cursor_shape = 2
-theme_override_font_sizes/font_size = 14
+theme_override_font_sizes/font_size = 16
 text = "▼"
 flat = true
 
-[node name="PerfPresetContent" type="VBoxContainer" parent="ShellUi/ShellHudRoot/PresetPanelRoot/Margin/VBox/PerfPresetPanel/Margin/VBox"]
+[node name="PerfPresetContent" type="VBoxContainer" parent="ShellUi/ShellHudRoot/RightPresetStack/PresetPanelRoot/Margin/VBox/PerfPresetPanel/Margin/VBox"]
 layout_mode = 2
 theme_override_constants/separation = 6
 
-[node name="PerfPresetNativeBtn" type="Button" parent="ShellUi/ShellHudRoot/PresetPanelRoot/Margin/VBox/PerfPresetPanel/Margin/VBox/PerfPresetContent"]
+[node name="PerfPresetNativeBtn" type="Button" parent="ShellUi/ShellHudRoot/RightPresetStack/PresetPanelRoot/Margin/VBox/PerfPresetPanel/Margin/VBox/PerfPresetContent"]
 layout_mode = 2
 custom_minimum_size = Vector2(200, 28)
+theme_override_font_sizes/font_size = 16
 text = "Native 4K"
 
-[node name="PerfPresetBalancedBtn" type="Button" parent="ShellUi/ShellHudRoot/PresetPanelRoot/Margin/VBox/PerfPresetPanel/Margin/VBox/PerfPresetContent"]
+[node name="PerfPresetBalancedBtn" type="Button" parent="ShellUi/ShellHudRoot/RightPresetStack/PresetPanelRoot/Margin/VBox/PerfPresetPanel/Margin/VBox/PerfPresetContent"]
 layout_mode = 2
 custom_minimum_size = Vector2(200, 28)
+theme_override_font_sizes/font_size = 16
 text = "Balanced"
 
-[node name="PerfPresetProbeBtn" type="Button" parent="ShellUi/ShellHudRoot/PresetPanelRoot/Margin/VBox/PerfPresetPanel/Margin/VBox/PerfPresetContent"]
+[node name="PerfPresetProbeBtn" type="Button" parent="ShellUi/ShellHudRoot/RightPresetStack/PresetPanelRoot/Margin/VBox/PerfPresetPanel/Margin/VBox/PerfPresetContent"]
 layout_mode = 2
 custom_minimum_size = Vector2(200, 28)
+theme_override_font_sizes/font_size = 16
 text = "Probe"
 
-[node name="PerfPresetSmoothBtn" type="Button" parent="ShellUi/ShellHudRoot/PresetPanelRoot/Margin/VBox/PerfPresetPanel/Margin/VBox/PerfPresetContent"]
+[node name="PerfPresetSmoothBtn" type="Button" parent="ShellUi/ShellHudRoot/RightPresetStack/PresetPanelRoot/Margin/VBox/PerfPresetPanel/Margin/VBox/PerfPresetContent"]
 layout_mode = 2
 custom_minimum_size = Vector2(200, 28)
+theme_override_font_sizes/font_size = 16
 text = "Smooth 60"
 
-[node name="FogPresetPanel" type="PanelContainer" parent="ShellUi/ShellHudRoot/PresetPanelRoot/Margin/VBox"]
+[node name="MapPresetPanel" type="PanelContainer" parent="ShellUi/ShellHudRoot/RightPresetStack/PresetPanelRoot/Margin/VBox"]
 layout_mode = 2
 size_flags_horizontal = 3
 mouse_filter = 0
 
-[node name="Margin" type="MarginContainer" parent="ShellUi/ShellHudRoot/PresetPanelRoot/Margin/VBox/FogPresetPanel"]
+[node name="Margin" type="MarginContainer" parent="ShellUi/ShellHudRoot/RightPresetStack/PresetPanelRoot/Margin/VBox/MapPresetPanel"]
 layout_mode = 2
 theme_override_constants/margin_left = 7
 theme_override_constants/margin_top = 5
 theme_override_constants/margin_right = 7
 theme_override_constants/margin_bottom = 5
 
-[node name="VBox" type="VBoxContainer" parent="ShellUi/ShellHudRoot/PresetPanelRoot/Margin/VBox/FogPresetPanel/Margin"]
+[node name="VBox" type="VBoxContainer" parent="ShellUi/ShellHudRoot/RightPresetStack/PresetPanelRoot/Margin/VBox/MapPresetPanel/Margin"]
 layout_mode = 2
 theme_override_constants/separation = 6
 
-[node name="FogHeaderRow" type="HBoxContainer" parent="ShellUi/ShellHudRoot/PresetPanelRoot/Margin/VBox/FogPresetPanel/Margin/VBox"]
+[node name="MapPresetTitle" type="Label" parent="ShellUi/ShellHudRoot/RightPresetStack/PresetPanelRoot/Margin/VBox/MapPresetPanel/Margin/VBox"]
 layout_mode = 2
-theme_override_constants/separation = 6
-
-[node name="FogPresetTitle" type="Label" parent="ShellUi/ShellHudRoot/PresetPanelRoot/Margin/VBox/FogPresetPanel/Margin/VBox/FogHeaderRow"]
-layout_mode = 2
-size_flags_horizontal = 0
-text = "Fog presets"
-
-[node name="FogResetBtn" type="Button" parent="ShellUi/ShellHudRoot/PresetPanelRoot/Margin/VBox/FogPresetPanel/Margin/VBox/FogHeaderRow"]
-layout_mode = 2
-custom_minimum_size = Vector2(52, 22)
-focus_mode = 0
-mouse_default_cursor_shape = 2
-theme_override_font_sizes/font_size = 12
-text = "Reset"
-flat = true
-
-[node name="Spacer" type="Control" parent="ShellUi/ShellHudRoot/PresetPanelRoot/Margin/VBox/FogPresetPanel/Margin/VBox/FogHeaderRow"]
-layout_mode = 2
-size_flags_horizontal = 3
-
-[node name="FogToggleBtn" type="Button" parent="ShellUi/ShellHudRoot/PresetPanelRoot/Margin/VBox/FogPresetPanel/Margin/VBox/FogHeaderRow"]
-layout_mode = 2
-custom_minimum_size = Vector2(20, 20)
-size_flags_horizontal = 8
-focus_mode = 0
-mouse_default_cursor_shape = 2
+theme_override_colors/font_color = Color(0.85, 0.88, 0.93, 1)
 theme_override_font_sizes/font_size = 14
-text = "▼"
-flat = true
+text = "Map (procedural)"
 
-[node name="FogPresetContent" type="VBoxContainer" parent="ShellUi/ShellHudRoot/PresetPanelRoot/Margin/VBox/FogPresetPanel/Margin/VBox"]
+[node name="MapLandWaterLabel" type="Label" parent="ShellUi/ShellHudRoot/RightPresetStack/PresetPanelRoot/Margin/VBox/MapPresetPanel/Margin/VBox"]
 layout_mode = 2
-theme_override_constants/separation = 6
+theme_override_font_sizes/font_size = 13
+text = "Land 55% — Water 45%"
 
-[node name="FogPresetCinematicBtn" type="Button" parent="ShellUi/ShellHudRoot/PresetPanelRoot/Margin/VBox/FogPresetPanel/Margin/VBox/FogPresetContent"]
+[node name="LandPercentSlider" type="HSlider" parent="ShellUi/ShellHudRoot/RightPresetStack/PresetPanelRoot/Margin/VBox/MapPresetPanel/Margin/VBox"]
 layout_mode = 2
-custom_minimum_size = Vector2(200, 28)
-text = "Cinematic"
+custom_minimum_size = Vector2(200, 22)
+min_value = 0.0
+max_value = 100.0
+step = 1.0
+value = 55.0
 
-[node name="FogPresetBalancedBtn" type="Button" parent="ShellUi/ShellHudRoot/PresetPanelRoot/Margin/VBox/FogPresetPanel/Margin/VBox/FogPresetContent"]
+[node name="StartAreaPatchLabel" type="Label" parent="ShellUi/ShellHudRoot/RightPresetStack/PresetPanelRoot/Margin/VBox/MapPresetPanel/Margin/VBox"]
 layout_mode = 2
-custom_minimum_size = Vector2(200, 28)
-text = "Balanced"
+theme_override_font_sizes/font_size = 13
+text = "Flat land at (0,0): radius 2 cells"
 
-[node name="FogPresetPerfBtn" type="Button" parent="ShellUi/ShellHudRoot/PresetPanelRoot/Margin/VBox/FogPresetPanel/Margin/VBox/FogPresetContent"]
+[node name="StartAreaPatchSlider" type="HSlider" parent="ShellUi/ShellHudRoot/RightPresetStack/PresetPanelRoot/Margin/VBox/MapPresetPanel/Margin/VBox"]
 layout_mode = 2
-custom_minimum_size = Vector2(200, 28)
-text = "Performance"
-
-[node name="FogSamplesLabel" type="Label" parent="ShellUi/ShellHudRoot/PresetPanelRoot/Margin/VBox/FogPresetPanel/Margin/VBox/FogPresetContent"]
-layout_mode = 2
-text = "Edge samples: 2"
-
-[node name="FogSamplesSlider" type="HSlider" parent="ShellUi/ShellHudRoot/PresetPanelRoot/Margin/VBox/FogPresetPanel/Margin/VBox/FogPresetContent"]
-layout_mode = 2
-custom_minimum_size = Vector2(200, 20)
-min_value = 2.0
-max_value = 16.0
+custom_minimum_size = Vector2(200, 22)
+min_value = 0.0
+max_value = 8.0
 step = 1.0
 value = 2.0
 
-[node name="FogSoftnessLabel" type="Label" parent="ShellUi/ShellHudRoot/PresetPanelRoot/Margin/VBox/FogPresetPanel/Margin/VBox/FogPresetContent"]
+[node name="MapSeedRow" type="HBoxContainer" parent="ShellUi/ShellHudRoot/RightPresetStack/PresetPanelRoot/Margin/VBox/MapPresetPanel/Margin/VBox"]
 layout_mode = 2
-text = "Edge softness: 0.80"
+theme_override_constants/separation = 8
 
-[node name="FogSoftnessSlider" type="HSlider" parent="ShellUi/ShellHudRoot/PresetPanelRoot/Margin/VBox/FogPresetPanel/Margin/VBox/FogPresetContent"]
+[node name="SeedLabel" type="Label" parent="ShellUi/ShellHudRoot/RightPresetStack/PresetPanelRoot/Margin/VBox/MapPresetPanel/Margin/VBox/MapSeedRow"]
 layout_mode = 2
-custom_minimum_size = Vector2(200, 20)
-min_value = 0.5
-max_value = 4.0
-step = 0.05
-value = 0.8
+theme_override_font_sizes/font_size = 13
+text = "Seed"
+custom_minimum_size = Vector2(40, 0)
 
-[node name="FogEdgeWidthLabel" type="Label" parent="ShellUi/ShellHudRoot/PresetPanelRoot/Margin/VBox/FogPresetPanel/Margin/VBox/FogPresetContent"]
+[node name="MapSeedSpinBox" type="SpinBox" parent="ShellUi/ShellHudRoot/RightPresetStack/PresetPanelRoot/Margin/VBox/MapPresetPanel/Margin/VBox/MapSeedRow"]
 layout_mode = 2
-text = "Edge radius: 2.35"
-
-[node name="FogEdgeWidthSlider" type="HSlider" parent="ShellUi/ShellHudRoot/PresetPanelRoot/Margin/VBox/FogPresetPanel/Margin/VBox/FogPresetContent"]
-layout_mode = 2
-custom_minimum_size = Vector2(200, 20)
-min_value = 0.25
-max_value = 2.5
-step = 0.05
-value = 2.35
-
-[node name="FogVisualHzLabel" type="Label" parent="ShellUi/ShellHudRoot/PresetPanelRoot/Margin/VBox/FogPresetPanel/Margin/VBox/FogPresetContent"]
-layout_mode = 2
-text = "Visual update: 60 Hz"
-
-[node name="FogVisualHzSlider" type="HSlider" parent="ShellUi/ShellHudRoot/PresetPanelRoot/Margin/VBox/FogPresetPanel/Margin/VBox/FogPresetContent"]
-layout_mode = 2
-custom_minimum_size = Vector2(200, 20)
-min_value = 10.0
-max_value = 240.0
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 14
+min_value = -2147483648.0
+max_value = 2147483647.0
 step = 1.0
-value = 60.0
+value = 1.0
+alignment = 2
 
-[node name="FogRevealLerpLabel" type="Label" parent="ShellUi/ShellHudRoot/PresetPanelRoot/Margin/VBox/FogPresetPanel/Margin/VBox/FogPresetContent"]
+[node name="RandomSeedBtn" type="Button" parent="ShellUi/ShellHudRoot/RightPresetStack/PresetPanelRoot/Margin/VBox/MapPresetPanel/Margin/VBox/MapSeedRow"]
 layout_mode = 2
-text = "Reveal lerp: 10.00"
+custom_minimum_size = Vector2(100, 28)
+theme_override_font_sizes/font_size = 13
+text = "Random seed"
 
-[node name="FogRevealLerpSlider" type="HSlider" parent="ShellUi/ShellHudRoot/PresetPanelRoot/Margin/VBox/FogPresetPanel/Margin/VBox/FogPresetContent"]
+[node name="ApplyMapLandBtn" type="Button" parent="ShellUi/ShellHudRoot/RightPresetStack/PresetPanelRoot/Margin/VBox/MapPresetPanel/Margin/VBox"]
 layout_mode = 2
-custom_minimum_size = Vector2(200, 20)
-min_value = 0.5
-max_value = 40.0
-step = 0.05
-value = 10.0
-
-[node name="FogBrushCoreLabel" type="Label" parent="ShellUi/ShellHudRoot/PresetPanelRoot/Margin/VBox/FogPresetPanel/Margin/VBox/FogPresetContent"]
-layout_mode = 2
-text = "Brush core: 0.72"
-
-[node name="FogBrushCoreSlider" type="HSlider" parent="ShellUi/ShellHudRoot/PresetPanelRoot/Margin/VBox/FogPresetPanel/Margin/VBox/FogPresetContent"]
-layout_mode = 2
-custom_minimum_size = Vector2(200, 20)
-min_value = 0.2
-max_value = 0.95
-step = 0.01
-value = 0.72
-
-[node name="FogBrushFeatherLabel" type="Label" parent="ShellUi/ShellHudRoot/PresetPanelRoot/Margin/VBox/FogPresetPanel/Margin/VBox/FogPresetContent"]
-layout_mode = 2
-text = "Brush feather: 1.40"
-
-[node name="FogBrushFeatherSlider" type="HSlider" parent="ShellUi/ShellHudRoot/PresetPanelRoot/Margin/VBox/FogPresetPanel/Margin/VBox/FogPresetContent"]
-layout_mode = 2
-custom_minimum_size = Vector2(200, 20)
-min_value = 0.5
-max_value = 4.0
-step = 0.05
-value = 1.4
+custom_minimum_size = Vector2(200, 28)
+theme_override_font_sizes/font_size = 14
+text = "Regenerate map"
 
 [node name="RightHudColumn" type="VBoxContainer" parent="ShellUi/ShellHudRoot"]
 layout_mode = 0
@@ -349,7 +320,7 @@ anchor_bottom = 0.0
 offset_left = -280.0
 offset_top = 8.0
 offset_right = -16.0
-offset_bottom = 160.0
+offset_bottom = 400.0
 grow_horizontal = 0
 grow_vertical = 0
 mouse_filter = 2
@@ -359,7 +330,7 @@ theme_override_constants/separation = 4
 layout_mode = 2
 mouse_filter = 2
 theme_override_colors/font_color = Color(0.75, 0.78, 0.84, 1)
-theme_override_font_sizes/font_size = 13
+theme_override_font_sizes/font_size = 15
 horizontal_alignment = 2
 text = "REV 0"
 
@@ -367,7 +338,7 @@ text = "REV 0"
 layout_mode = 2
 mouse_filter = 2
 theme_override_colors/font_color = Color(0.9, 0.92, 0.96, 1)
-theme_override_font_sizes/font_size = 16
+theme_override_font_sizes/font_size = 18
 horizontal_alignment = 2
 text = "0.0 ms"
 
@@ -375,17 +346,9 @@ text = "0.0 ms"
 layout_mode = 2
 mouse_filter = 2
 theme_override_colors/font_color = Color(0.9, 0.92, 0.96, 1)
-theme_override_font_sizes/font_size = 16
+theme_override_font_sizes/font_size = 18
 horizontal_alignment = 2
 text = "0 FPS"
-
-[node name="PlayerPositionLabel" type="Label" parent="ShellUi/ShellHudRoot/RightHudColumn"]
-layout_mode = 2
-mouse_filter = 2
-theme_override_colors/font_color = Color(0.9, 0.92, 0.96, 1)
-theme_override_font_sizes/font_size = 16
-horizontal_alignment = 2
-text = "0, 0"
 
 [node name="BootLabel" type="Label" parent="ShellUi/ShellHudRoot"]
 layout_mode = 0
@@ -401,7 +364,7 @@ offset_bottom = -8.0
 grow_horizontal = 2
 grow_vertical = 0
 mouse_filter = 2
-theme_override_font_sizes/font_size = 16
+theme_override_font_sizes/font_size = 18
 text = "Controls"
 horizontal_alignment = 1
 vertical_alignment = 1
@@ -410,7 +373,7 @@ vertical_alignment = 1
 layout_mode = 2
 mouse_filter = 2
 theme_override_colors/font_color = Color(0.9, 0.92, 0.96, 1)
-theme_override_font_sizes/font_size = 16
+theme_override_font_sizes/font_size = 18
 horizontal_alignment = 2
 text = "0 FLR"
 
@@ -418,9 +381,52 @@ text = "0 FLR"
 layout_mode = 2
 mouse_filter = 2
 theme_override_colors/font_color = Color(0.9, 0.92, 0.96, 1)
-theme_override_font_sizes/font_size = 16
+theme_override_font_sizes/font_size = 18
 horizontal_alignment = 2
 text = "1.00 ZOM"
+
+[node name="StatsHoverSpacer" type="Control" parent="ShellUi/ShellHudRoot/RightHudColumn"]
+layout_mode = 2
+mouse_filter = 2
+custom_minimum_size = Vector2(0, 10)
+
+[node name="PlayerFootPanel" type="PanelContainer" parent="ShellUi/ShellHudRoot/RightHudColumn"]
+layout_mode = 2
+mouse_filter = 2
+
+[node name="Margin" type="MarginContainer" parent="ShellUi/ShellHudRoot/RightHudColumn/PlayerFootPanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 8
+theme_override_constants/margin_top = 6
+theme_override_constants/margin_right = 8
+theme_override_constants/margin_bottom = 6
+
+[node name="PlayerFootReadoutLabel" type="Label" parent="ShellUi/ShellHudRoot/RightHudColumn/PlayerFootPanel/Margin"]
+layout_mode = 2
+mouse_filter = 2
+theme_override_colors/font_color = Color(0.9, 0.92, 0.96, 1)
+theme_override_font_sizes/font_size = 18
+horizontal_alignment = 2
+text = "—"
+
+[node name="HoverTilePanel" type="PanelContainer" parent="ShellUi/ShellHudRoot/RightHudColumn"]
+layout_mode = 2
+mouse_filter = 2
+
+[node name="Margin" type="MarginContainer" parent="ShellUi/ShellHudRoot/RightHudColumn/HoverTilePanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 8
+theme_override_constants/margin_top = 6
+theme_override_constants/margin_right = 8
+theme_override_constants/margin_bottom = 6
+
+[node name="HoverTileReadoutLabel" type="Label" parent="ShellUi/ShellHudRoot/RightHudColumn/HoverTilePanel/Margin"]
+layout_mode = 2
+mouse_filter = 2
+theme_override_colors/font_color = Color(0.9, 0.92, 0.96, 1)
+theme_override_font_sizes/font_size = 18
+horizontal_alignment = 2
+text = "—"
 
 [node name="PauseMenuRoot" type="Control" parent="ShellUi/ShellHudRoot"]
 visible = false
@@ -468,18 +474,22 @@ theme_override_constants/separation = 12
 
 [node name="PauseQuitButton" type="Button" parent="ShellUi/ShellHudRoot/PauseMenuRoot/Center/MenuPanel/Margin/VBox"]
 layout_mode = 2
+theme_override_font_sizes/font_size = 16
 text = "Quit"
 
 [node name="PauseResumeButton" type="Button" parent="ShellUi/ShellHudRoot/PauseMenuRoot/Center/MenuPanel/Margin/VBox"]
 layout_mode = 2
+theme_override_font_sizes/font_size = 16
 text = "Resume"
 
 [node name="PauseMapGeneratorButton" type="Button" parent="ShellUi/ShellHudRoot/PauseMenuRoot/Center/MenuPanel/Margin/VBox"]
 layout_mode = 2
+theme_override_font_sizes/font_size = 16
 text = "Map generator…"
 
 [node name="PauseMapEditorButton" type="Button" parent="ShellUi/ShellHudRoot/PauseMenuRoot/Center/MenuPanel/Margin/VBox"]
 layout_mode = 2
+theme_override_font_sizes/font_size = 16
 text = "Map editor…"
 
 [node name="GridMap" type="Node2D" parent="."]
@@ -490,10 +500,6 @@ position_smoothing_enabled = false
 
 [node name="Player" type="Node2D" parent="GridMap"]
 script = ExtResource("5_player")
-
-[node name="FogOverlayRenderer" type="Node2D" parent="GridMap"]
-z_index = 6
-script = ExtResource("7_fogoverlay")
 
 [node name="Marker" type="ColorRect" parent="GridMap/Player"]
 offset_left = -6.0

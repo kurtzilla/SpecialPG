@@ -54,4 +54,46 @@ public static class SubTileTraversal
         var sample = evaluator.EvaluateAt(wx, wy);
         return !evaluator.IsWater(sample);
     }
+
+    /// <summary>
+    /// Diagnostic mirror of <see cref="IsWalkable"/> that returns a short human-readable reason when the
+    /// sub-cell is not walkable (or <c>null</c> when it is). Use only on failure paths; the noise sampling
+    /// and dictionary lookups would otherwise add cost to every accepted step.
+    /// </summary>
+    public static string? DiagnoseUnwalkable(
+        WorldMap map,
+        int z,
+        int tileX,
+        int tileY,
+        int subX,
+        int subY,
+        ITerrainEvaluator evaluator)
+    {
+        ArgumentNullException.ThrowIfNull(map);
+        ArgumentNullException.ThrowIfNull(evaluator);
+        if (!SubTileGrid.IsValidSub(subX) || !SubTileGrid.IsValidSub(subY))
+            return $"sub({subX},{subY}) outside [0..{SubTileGrid.Resolution - 1}]";
+
+        if (!map.TryGetFloor(z, out var floor) || floor is null)
+            return $"floor z={z} not present";
+
+        if (!floor.Contains(tileX, tileY))
+            return $"tile ({tileX},{tileY}) outside floor bounds";
+
+        var tile = floor.Get(tileX, tileY);
+        if ((tile.Flags & TileFlags.Blocked) != 0)
+            return "tile.Flags has Blocked";
+        if (tile.Override == TerrainOverride.ForceLand)
+            return null;
+        if (tile.Override == TerrainOverride.ForceWater)
+            return "tile.Override=ForceWater";
+
+        var wx = SubCellWorldX(tileX, subX);
+        var wy = SubCellWorldY(tileY, subY);
+        var sample = evaluator.EvaluateAt(wx, wy);
+        if (evaluator.IsWater(sample))
+            return $"sub-tile noise water at world({wx:F3},{wy:F3})";
+
+        return null;
+    }
 }

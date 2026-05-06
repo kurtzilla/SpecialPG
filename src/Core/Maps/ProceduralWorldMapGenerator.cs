@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using SpecialPG.Core.Maps.Noise;
 
 namespace SpecialPG.Core.Maps;
@@ -8,29 +9,43 @@ namespace SpecialPG.Core.Maps;
 /// </summary>
 public static class ProceduralWorldMapGenerator
 {
+    private const int MaxElevationSamplesForThreshold = 500_000;
+
     /// <summary>
     /// Legacy entry: default land/water split from <see cref="MapGenerationParameters.FromSeedOnly"/>.
     /// </summary>
     public static WorldMap BuildBoundedWorld(int width, int height, int chunkWidth, int chunkHeight, int seed,
         int minX = 0, int minY = 0) =>
-        BuildBoundedWorld(width, height, chunkWidth, chunkHeight, MapGenerationParameters.FromSeedOnly(seed), minX, minY);
+        BuildBoundedWorld(width, height, chunkWidth, chunkHeight, MapGenerationParameters.FromSeedOnly(seed), minX, minY,
+            OriginWalkabilityPatch.DefaultChebyshevRadius);
 
     /// <summary>
     /// Builds a rectangular world with floors Z=0 and Z=1, filled tile-by-chunk using noise.
-    /// <see cref="MapGenerationParameters.WaterPercent"/> biases <see cref="TerrainNoiseConfig.WaterElevationThreshold"/>.
+    /// Chooses <see cref="TerrainNoiseConfig.WaterElevationThreshold"/> so roughly <see cref="MapGenerationParameters.WaterPercent"/> of
+    /// cells classify as water at tile centers.
     /// </summary>
+    /// <param name="originPatchChebyshevRadius">
+    /// Half-size (Chebyshev) of the guaranteed <see cref="TerrainOverride.ForceLand"/> square applied at map center
+    /// (stairs anchor) and again at global (0,0); see <see cref="OriginWalkabilityPatch"/> and
+    /// <see cref="LandmassBridgeToLargestComponent"/>.
+    /// </param>
     public static WorldMap BuildBoundedWorld(int width, int height, int chunkWidth, int chunkHeight,
-        MapGenerationParameters parameters, int minX = 0, int minY = 0)
+        MapGenerationParameters parameters, int minX = 0, int minY = 0,
+        int originPatchChebyshevRadius = OriginWalkabilityPatch.DefaultChebyshevRadius)
     {
         if (!parameters.IsValid)
             throw new ArgumentException("MapGenerationParameters must have LandPercent + WaterPercent = 100.", nameof(parameters));
 
         var map = new WorldMap(width, height, chunkWidth, chunkHeight, minX, minY);
-        var w = parameters.WaterPercent / 100f;
-        var terrainCfg = TerrainNoiseConfig.Default(parameters.Seed) with
-        {
-            WaterElevationThreshold = -0.35f + w * 1.15f,
-        };
+
+        var baseCfg = TerrainNoiseConfig.Default(parameters.Seed);
+        map.TerrainConfig = baseCfg;
+        var probeEval = new TerrainEvaluator(baseCfg);
+
+        var elevations = CollectTileCenterElevations(probeEval, minX, minY, width, height, MaxElevationSamplesForThreshold);
+        var waterThreshold = ComputeWaterElevationThreshold(elevations, parameters.WaterPercent);
+
+        var terrainCfg = baseCfg with { WaterElevationThreshold = waterThreshold };
         map.TerrainConfig = terrainCfg;
         var eval = new TerrainEvaluator(terrainCfg);
 
@@ -64,10 +79,14 @@ public static class ProceduralWorldMapGenerator
                                 var gx = minX + ox + lx;
                                 var gy = minY + oy + ly;
 
+                                // Sample at tile center so stored land/water matches SubTileTraversal + TerrainVisualColor
+                                // (both use fractional world coords ~ gx+0.5), avoiding “all edges are water” traps.
+                                var sampleX = gx + 0.5f;
+                                var sampleY = gy + 0.5f;
                                 TileCell cell;
                                 if (gx == stairX && gy == stairY)
                                 {
-                                    cell = eval.ToTileCell(gx, gy, 0) with
+                                    cell = eval.ToTileCell(sampleX, sampleY, 0) with
                                     {
                                         Override = TerrainOverride.ForceLand,
                                         Flags = 0,
@@ -75,7 +94,7 @@ public static class ProceduralWorldMapGenerator
                                 }
                                 else
                                 {
-                                    cell = eval.ToTileCell(gx, gy, (byte)rng.Next(0, 4));
+                                    cell = eval.ToTileCell(sampleX, sampleY, (byte)rng.Next(0, 4));
                                 }
 
                                 floor.Set(gx, gy, cell);
@@ -102,6 +121,65 @@ public static class ProceduralWorldMapGenerator
             OneWay = false,
         });
 
+        OriginWalkabilityPatch.ApplyToBoundedWorld(map, originPatchChebyshevRadius, stairX, stairY);
+        OriginWalkabilityPatch.ApplyToBoundedWorld(map, originPatchChebyshevRadius, 0, 0);
+        LandmassBridgeToLargestComponent.ApplyToBoundedWorld(map);
         return map;
+    }
+
+    private static List<float> CollectTileCenterElevations(
+        TerrainEvaluator eval,
+        int minX,
+        int minY,
+        int width,
+        int height,
+        int maxSamples)
+    {
+        long total = (long)width * height;
+        var list = new List<float>((int)Math.Min(total, maxSamples));
+
+        if (total <= maxSamples)
+        {
+            for (var gy = minY; gy < minY + height; gy++)
+            {
+                for (var gx = minX; gx < minX + width; gx++)
+                    list.Add(eval.EvaluateAt(gx + 0.5f, gy + 0.5f).Elevation);
+            }
+
+            return list;
+        }
+
+        var stepY = Math.Max(1, (int)Math.Ceiling(height / Math.Sqrt(maxSamples)));
+        var stepX = Math.Max(1, (int)Math.Ceiling(width / Math.Sqrt(maxSamples)));
+        for (var gy = minY; gy < minY + height; gy += stepY)
+        {
+            for (var gx = minX; gx < minX + width; gx += stepX)
+                list.Add(eval.EvaluateAt(gx + 0.5f, gy + 0.5f).Elevation);
+        }
+
+        return list;
+    }
+
+    /// <summary>
+    /// Elevation strictly below the returned value becomes water in <see cref="TerrainEvaluator.IsWater"/>.
+    /// Sorts <paramref name="elevations"/> in place.
+    /// </summary>
+    private static float ComputeWaterElevationThreshold(List<float> elevations, int waterPercent)
+    {
+        ArgumentNullException.ThrowIfNull(elevations);
+        if (elevations.Count == 0)
+            return TerrainNoiseConfig.Default(0).WaterElevationThreshold;
+
+        elevations.Sort();
+
+        if (waterPercent <= 0)
+            return elevations[0] - 0.02f;
+
+        if (waterPercent >= 100)
+            return elevations[^1] + 0.02f;
+
+        var frac = waterPercent / 100f;
+        var idx = (int)Math.Clamp(Math.Floor(frac * (elevations.Count - 1)), 0, elevations.Count - 1);
+        return elevations[idx];
     }
 }

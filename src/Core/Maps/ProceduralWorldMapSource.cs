@@ -43,8 +43,6 @@ public sealed class ProceduralWorldMapSource : IWorldMapSource
         errorDetail = null;
 
         var map = ProceduralWorldMapGenerator.BuildBoundedWorld(Width, Height, ChunkWidth, ChunkHeight, Parameters);
-        if ((long)Width * Height < 4_000_000L)
-            WaterTerrainRules.ApplyMinimumWaterBlobSizeTwoByTwo(map);
 
         var integrity = MapIntegrity.Validate(map);
         if (integrity.HasErrors)

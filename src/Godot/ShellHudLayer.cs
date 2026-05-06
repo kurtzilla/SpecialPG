@@ -1,6 +1,7 @@
 #nullable enable
 using Godot;
 using SpecialPG;
+using SpecialPG.Core.Maps;
 
 /// <summary>
 /// Root-level shell HUD + pause menu (ESC toggles). Quit lives at the top of the pause menu only.
@@ -13,21 +14,9 @@ public partial class ShellHudLayer : Control
     private const string BalancedLabel = "Balanced";
     private const string ProbeLabel = "Probe";
     private const string SmoothLabel = "Smooth 60";
-    private const string FogCinematicLabel = "Cinematic";
-    private const string FogBalancedLabel = "Balanced";
-    private const string FogPerformanceLabel = "Performance";
     private const float ResetPerfRenderScale = 1.0f;
     private const int ResetPerfMaxFps = 0;
     private const int ResetPerfVsyncMode = -1;
-    private const bool ResetFogEdgeEnabled = true;
-    private const float ResetFogEdgeOpacity = 0.90f;
-    private const float ResetFogEdgeWidth = 1.60f;
-    private const float ResetFogEdgeSoftness = 1.10f;
-    private const int ResetFogEdgeSamples = 2;
-    private const int ResetFogVisualUpdateHz = 20;
-    private const float ResetFogRevealLerpSpeed = 6.0f;
-    private const float ResetFogBrushHardCoreRatio = 0.72f;
-    private const float ResetFogBrushFeatherExponent = 1.40f;
 
     private GameRoot? _gridRoot;
     private Label _bootLabel = null!;
@@ -36,38 +25,28 @@ public partial class ShellHudLayer : Control
     private Label _floorLabel = null!;
     private Label _zoomLabel = null!;
     private Label _revisionLabel = null!;
-    private Label _playerPosLabel = null!;
+    private Label _playerFootReadoutLabel = null!;
     private Control _pauseMenuRoot = null!;
     private Button _nativeBtn = null!;
     private Button _balancedBtn = null!;
     private Button _probeBtn = null!;
     private Button _smoothBtn = null!;
-    private Button _fogCinematicBtn = null!;
-    private Button _fogBalancedBtn = null!;
-    private Button _fogPerformanceBtn = null!;
     private Button _perfToggleBtn = null!;
-    private Button _fogToggleBtn = null!;
     private Button _perfResetBtn = null!;
-    private Button _fogResetBtn = null!;
     private Control _perfPresetContent = null!;
-    private Control _fogPresetContent = null!;
-    private Label _fogSamplesLabel = null!;
-    private HSlider _fogSamplesSlider = null!;
-    private Label _fogSoftnessLabel = null!;
-    private HSlider _fogSoftnessSlider = null!;
-    private Label _fogEdgeWidthLabel = null!;
-    private HSlider _fogEdgeWidthSlider = null!;
-    private Label _fogVisualHzLabel = null!;
-    private HSlider _fogVisualHzSlider = null!;
-    private Label _fogRevealLerpLabel = null!;
-    private HSlider _fogRevealLerpSlider = null!;
-    private Label _fogBrushCoreLabel = null!;
-    private HSlider _fogBrushCoreSlider = null!;
-    private Label _fogBrushFeatherLabel = null!;
-    private HSlider _fogBrushFeatherSlider = null!;
     private Button _mapGenBtn = null!;
     private Button _mapEditorBtn = null!;
     private MapWorkbenchPanel _mapWorkbench = null!;
+    private Label _mapLandWaterLabel = null!;
+    private HSlider _landPctSlider = null!;
+    private SpinBox _mapSeedSpinBox = null!;
+    private Button _randomSeedBtn = null!;
+    private Label _startAreaPatchLabel = null!;
+    private HSlider _startAreaPatchSlider = null!;
+    private Button _applyMapLandBtn = null!;
+    private Label _hoverTileReadoutLabel = null!;
+    private double _hoverReadoutAccum;
+    private const double HoverReadoutIntervalS = 0.25;
 
     public override void _Ready()
     {
@@ -79,52 +58,45 @@ public partial class ShellHudLayer : Control
         _floorLabel = GetNode<Label>("RightHudColumn/FloorLabel");
         _zoomLabel = GetNode<Label>("RightHudColumn/ZoomLabel");
         _revisionLabel = GetNode<Label>("RightHudColumn/RevisionLabel");
-        _playerPosLabel = GetNode<Label>("RightHudColumn/PlayerPositionLabel");
+        _playerFootReadoutLabel =
+            GetNode<Label>("RightHudColumn/PlayerFootPanel/Margin/PlayerFootReadoutLabel");
+        _hoverTileReadoutLabel =
+            GetNode<Label>("RightHudColumn/HoverTilePanel/Margin/HoverTileReadoutLabel");
         _pauseMenuRoot = GetNode<Control>("PauseMenuRoot");
         _gridRoot = GetTree().CurrentScene?.GetNodeOrNull<GameRoot>("GridMap");
 
         var quitBtn = GetNode<Button>("PauseMenuRoot/Center/MenuPanel/Margin/VBox/PauseQuitButton");
         var resumeBtn = GetNode<Button>("PauseMenuRoot/Center/MenuPanel/Margin/VBox/PauseResumeButton");
-        _balancedBtn = GetNode<Button>("PresetPanelRoot/Margin/VBox/PerfPresetPanel/Margin/VBox/PerfPresetContent/PerfPresetBalancedBtn");
-        _probeBtn = GetNode<Button>("PresetPanelRoot/Margin/VBox/PerfPresetPanel/Margin/VBox/PerfPresetContent/PerfPresetProbeBtn");
-        _smoothBtn = GetNode<Button>("PresetPanelRoot/Margin/VBox/PerfPresetPanel/Margin/VBox/PerfPresetContent/PerfPresetSmoothBtn");
-        _perfToggleBtn = GetNode<Button>("PresetPanelRoot/Margin/VBox/PerfPresetPanel/Margin/VBox/PerfHeaderRow/PerfToggleBtn");
-        _perfResetBtn = GetNode<Button>("PresetPanelRoot/Margin/VBox/PerfPresetPanel/Margin/VBox/PerfHeaderRow/PerfResetBtn");
-        _perfPresetContent = GetNode<Control>("PresetPanelRoot/Margin/VBox/PerfPresetPanel/Margin/VBox/PerfPresetContent");
-        _fogCinematicBtn = GetNode<Button>("PresetPanelRoot/Margin/VBox/FogPresetPanel/Margin/VBox/FogPresetContent/FogPresetCinematicBtn");
-        _fogBalancedBtn = GetNode<Button>("PresetPanelRoot/Margin/VBox/FogPresetPanel/Margin/VBox/FogPresetContent/FogPresetBalancedBtn");
-        _fogPerformanceBtn = GetNode<Button>("PresetPanelRoot/Margin/VBox/FogPresetPanel/Margin/VBox/FogPresetContent/FogPresetPerfBtn");
-        _fogToggleBtn = GetNode<Button>("PresetPanelRoot/Margin/VBox/FogPresetPanel/Margin/VBox/FogHeaderRow/FogToggleBtn");
-        _fogResetBtn = GetNode<Button>("PresetPanelRoot/Margin/VBox/FogPresetPanel/Margin/VBox/FogHeaderRow/FogResetBtn");
-        _fogPresetContent = GetNode<Control>("PresetPanelRoot/Margin/VBox/FogPresetPanel/Margin/VBox/FogPresetContent");
-        _fogSamplesLabel = GetNode<Label>("PresetPanelRoot/Margin/VBox/FogPresetPanel/Margin/VBox/FogPresetContent/FogSamplesLabel");
-        _fogSamplesSlider = GetNode<HSlider>("PresetPanelRoot/Margin/VBox/FogPresetPanel/Margin/VBox/FogPresetContent/FogSamplesSlider");
-        _fogSoftnessLabel = GetNode<Label>("PresetPanelRoot/Margin/VBox/FogPresetPanel/Margin/VBox/FogPresetContent/FogSoftnessLabel");
-        _fogSoftnessSlider = GetNode<HSlider>("PresetPanelRoot/Margin/VBox/FogPresetPanel/Margin/VBox/FogPresetContent/FogSoftnessSlider");
-        _fogEdgeWidthLabel = GetNode<Label>("PresetPanelRoot/Margin/VBox/FogPresetPanel/Margin/VBox/FogPresetContent/FogEdgeWidthLabel");
-        _fogEdgeWidthSlider = GetNode<HSlider>("PresetPanelRoot/Margin/VBox/FogPresetPanel/Margin/VBox/FogPresetContent/FogEdgeWidthSlider");
-        _fogVisualHzLabel = GetNode<Label>("PresetPanelRoot/Margin/VBox/FogPresetPanel/Margin/VBox/FogPresetContent/FogVisualHzLabel");
-        _fogVisualHzSlider = GetNode<HSlider>("PresetPanelRoot/Margin/VBox/FogPresetPanel/Margin/VBox/FogPresetContent/FogVisualHzSlider");
-        _fogRevealLerpLabel = GetNode<Label>("PresetPanelRoot/Margin/VBox/FogPresetPanel/Margin/VBox/FogPresetContent/FogRevealLerpLabel");
-        _fogRevealLerpSlider = GetNode<HSlider>("PresetPanelRoot/Margin/VBox/FogPresetPanel/Margin/VBox/FogPresetContent/FogRevealLerpSlider");
-        _fogBrushCoreLabel = GetNode<Label>("PresetPanelRoot/Margin/VBox/FogPresetPanel/Margin/VBox/FogPresetContent/FogBrushCoreLabel");
-        _fogBrushCoreSlider = GetNode<HSlider>("PresetPanelRoot/Margin/VBox/FogPresetPanel/Margin/VBox/FogPresetContent/FogBrushCoreSlider");
-        _fogBrushFeatherLabel = GetNode<Label>("PresetPanelRoot/Margin/VBox/FogPresetPanel/Margin/VBox/FogPresetContent/FogBrushFeatherLabel");
-        _fogBrushFeatherSlider = GetNode<HSlider>("PresetPanelRoot/Margin/VBox/FogPresetPanel/Margin/VBox/FogPresetContent/FogBrushFeatherSlider");
-        _nativeBtn = GetNode<Button>("PresetPanelRoot/Margin/VBox/PerfPresetPanel/Margin/VBox/PerfPresetContent/PerfPresetNativeBtn");
+        _balancedBtn = GetNode<Button>("RightPresetStack/PresetPanelRoot/Margin/VBox/PerfPresetPanel/Margin/VBox/PerfPresetContent/PerfPresetBalancedBtn");
+        _probeBtn = GetNode<Button>("RightPresetStack/PresetPanelRoot/Margin/VBox/PerfPresetPanel/Margin/VBox/PerfPresetContent/PerfPresetProbeBtn");
+        _smoothBtn = GetNode<Button>("RightPresetStack/PresetPanelRoot/Margin/VBox/PerfPresetPanel/Margin/VBox/PerfPresetContent/PerfPresetSmoothBtn");
+        _perfToggleBtn = GetNode<Button>("RightPresetStack/PresetPanelRoot/Margin/VBox/PerfPresetPanel/Margin/VBox/PerfHeaderRow/PerfToggleBtn");
+        _perfResetBtn = GetNode<Button>("RightPresetStack/PresetPanelRoot/Margin/VBox/PerfPresetPanel/Margin/VBox/PerfHeaderRow/PerfResetBtn");
+        _perfPresetContent = GetNode<Control>("RightPresetStack/PresetPanelRoot/Margin/VBox/PerfPresetPanel/Margin/VBox/PerfPresetContent");
+        _nativeBtn = GetNode<Button>("RightPresetStack/PresetPanelRoot/Margin/VBox/PerfPresetPanel/Margin/VBox/PerfPresetContent/PerfPresetNativeBtn");
         _nativeBtn.Text = NativeLabel;
         _balancedBtn.Text = BalancedLabel;
         _probeBtn.Text = ProbeLabel;
         _smoothBtn.Text = SmoothLabel;
-        _fogCinematicBtn.Text = FogCinematicLabel;
-        _fogBalancedBtn.Text = FogBalancedLabel;
-        _fogPerformanceBtn.Text = FogPerformanceLabel;
         quitBtn.Pressed += OnPauseQuitPressed;
         resumeBtn.Pressed += ClosePauseMenu;
         _mapGenBtn = GetNode<Button>("PauseMenuRoot/Center/MenuPanel/Margin/VBox/PauseMapGeneratorButton");
         _mapEditorBtn = GetNode<Button>("PauseMenuRoot/Center/MenuPanel/Margin/VBox/PauseMapEditorButton");
         _mapGenBtn.Pressed += OnMapGeneratorPressed;
         _mapEditorBtn.Pressed += OnMapEditorPressed;
+
+        _mapLandWaterLabel = GetNode<Label>("RightPresetStack/PresetPanelRoot/Margin/VBox/MapPresetPanel/Margin/VBox/MapLandWaterLabel");
+        _landPctSlider = GetNode<HSlider>("RightPresetStack/PresetPanelRoot/Margin/VBox/MapPresetPanel/Margin/VBox/LandPercentSlider");
+        _startAreaPatchLabel = GetNode<Label>("RightPresetStack/PresetPanelRoot/Margin/VBox/MapPresetPanel/Margin/VBox/StartAreaPatchLabel");
+        _startAreaPatchSlider = GetNode<HSlider>("RightPresetStack/PresetPanelRoot/Margin/VBox/MapPresetPanel/Margin/VBox/StartAreaPatchSlider");
+        _mapSeedSpinBox = GetNode<SpinBox>("RightPresetStack/PresetPanelRoot/Margin/VBox/MapPresetPanel/Margin/VBox/MapSeedRow/MapSeedSpinBox");
+        _randomSeedBtn = GetNode<Button>("RightPresetStack/PresetPanelRoot/Margin/VBox/MapPresetPanel/Margin/VBox/MapSeedRow/RandomSeedBtn");
+        _applyMapLandBtn = GetNode<Button>("RightPresetStack/PresetPanelRoot/Margin/VBox/MapPresetPanel/Margin/VBox/ApplyMapLandBtn");
+        _landPctSlider.ValueChanged += OnLandPercentSliderChanged;
+        _startAreaPatchSlider.ValueChanged += OnStartAreaPatchSliderChanged;
+        _applyMapLandBtn.Pressed += OnApplyMapLandPressed;
+        _randomSeedBtn.Pressed += OnRandomSeedPressed;
+        PopulateTerrainLegend();
 
         _mapWorkbench = new MapWorkbenchPanel();
         AddChild(_mapWorkbench);
@@ -150,66 +122,155 @@ public partial class ShellHudLayer : Control
             _gridRoot?.ApplyPerfPreset(1.0f, 60, 1, "smooth");
             SetSelectedPresetButton(_smoothBtn);
         };
-        _fogCinematicBtn.Pressed += () =>
-        {
-            _gridRoot?.ApplyFogPreset(true, 0.88f, 1.90f, 1.00f, 4, "cinematic");
-            SetSelectedFogPresetButton(_fogCinematicBtn);
-        };
-        _fogBalancedBtn.Pressed += () =>
-        {
-            _gridRoot?.ApplyFogPreset(true, 0.90f, 1.60f, 1.10f, 2, "balanced");
-            SetSelectedFogPresetButton(_fogBalancedBtn);
-        };
-        _fogPerformanceBtn.Pressed += () =>
-        {
-            _gridRoot?.ApplyFogPreset(true, 0.90f, 1.35f, 1.20f, 2, "performance");
-            SetSelectedFogPresetButton(_fogPerformanceBtn);
-            UpdateFogSamplesUi((int)Mathf.Round(_fogSamplesSlider.Value));
-            UpdateFogSoftnessUi((float)_fogSoftnessSlider.Value);
-        };
-        _fogSamplesSlider.ValueChanged += OnFogSamplesSliderChanged;
-        _fogSoftnessSlider.ValueChanged += OnFogSoftnessSliderChanged;
-        _fogEdgeWidthSlider.ValueChanged += OnFogEdgeWidthSliderChanged;
-        _fogVisualHzSlider.ValueChanged += OnFogVisualHzSliderChanged;
-        _fogRevealLerpSlider.ValueChanged += OnFogRevealLerpSliderChanged;
-        _fogBrushCoreSlider.ValueChanged += OnFogBrushCoreSliderChanged;
-        _fogBrushFeatherSlider.ValueChanged += OnFogBrushFeatherSliderChanged;
         _perfToggleBtn.Pressed += TogglePerfPanel;
-        _fogToggleBtn.Pressed += ToggleFogPanel;
         _perfResetBtn.Pressed += ResetPerfPanelDefaults;
-        _fogResetBtn.Pressed += ResetFogPanelDefaults;
 
         _pauseMenuRoot.Visible = false;
         _pauseMenuRoot.MouseFilter = MouseFilterEnum.Ignore;
-        _perfPresetContent.Visible = true;
-        _fogPresetContent.Visible = true;
+        // Keep header visible; collapse body so the map reads like a game (perf via ▶ toggle).
+        _perfPresetContent.Visible = false;
         RefreshPanelToggleGlyphs();
         SetSelectedPresetButton(_nativeBtn);
-        SetSelectedFogPresetButton(_fogBalancedBtn);
-        var startingSamples = _gridRoot?.ShellFogEdgeSamples ?? (int)Mathf.Round(_fogSamplesSlider.Value);
-        _fogSamplesSlider.SetValueNoSignal(startingSamples);
-        UpdateFogSamplesUi(startingSamples);
-        var startingSoftness = _gridRoot?.ShellFogEdgeSoftness ?? (float)_fogSoftnessSlider.Value;
-        _fogSoftnessSlider.SetValueNoSignal(startingSoftness);
-        UpdateFogSoftnessUi(startingSoftness);
-        var startingEdgeWidth = _gridRoot?.ShellFogEdgeWidthCells ?? (float)_fogEdgeWidthSlider.Value;
-        _fogEdgeWidthSlider.SetValueNoSignal(startingEdgeWidth);
-        UpdateFogEdgeWidthUi(startingEdgeWidth);
-        var startingVisualHz = _gridRoot?.ShellFogVisualUpdateHz ?? (int)Mathf.Round(_fogVisualHzSlider.Value);
-        _fogVisualHzSlider.SetValueNoSignal(startingVisualHz);
-        UpdateFogVisualHzUi(startingVisualHz);
-        var startingRevealLerp = _gridRoot?.ShellFogRevealLerpSpeed ?? (float)_fogRevealLerpSlider.Value;
-        _fogRevealLerpSlider.SetValueNoSignal(startingRevealLerp);
-        UpdateFogRevealLerpUi(startingRevealLerp);
-        var startingBrushCore = _gridRoot?.ShellFogBrushHardCoreRatio ?? (float)_fogBrushCoreSlider.Value;
-        _fogBrushCoreSlider.SetValueNoSignal(startingBrushCore);
-        UpdateFogBrushCoreUi(startingBrushCore);
-        var startingBrushFeather = _gridRoot?.ShellFogBrushFeatherExponent ?? (float)_fogBrushFeatherSlider.Value;
-        _fogBrushFeatherSlider.SetValueNoSignal(startingBrushFeather);
-        UpdateFogBrushFeatherUi(startingBrushFeather);
 
         Callable.From(EnsureShellHudFillsViewport).CallDeferred();
+        Callable.From(DeferredSyncMapPresetFromGameRoot).CallDeferred();
         GetViewport().SizeChanged += OnViewportSizeChanged;
+        SetProcess(true);
+    }
+
+    public override void _Process(double delta)
+    {
+        _hoverReadoutAccum += delta;
+        if (_hoverReadoutAccum < HoverReadoutIntervalS)
+        {
+            return;
+        }
+
+        _hoverReadoutAccum = 0;
+        _gridRoot ??= GetTree().CurrentScene?.GetNodeOrNull<GameRoot>("GridMap");
+        if (_gridRoot is null)
+        {
+            return;
+        }
+
+        _gridRoot.TryGetPlayerFootReadout(out var footLine);
+        _playerFootReadoutLabel.Text = footLine;
+
+        _gridRoot.TryGetHoverTileReadout(out var hoverLine);
+        _hoverTileReadoutLabel.Text = hoverLine;
+    }
+
+    /// <summary>Keep land %%, seed, and origin-patch controls aligned with <see cref="GameRoot"/> after bootstrap / map replace.</summary>
+    public void SyncMapPresetUi(int landPercent, int seed, int originPatchChebyshevRadius, bool canEdit)
+    {
+        var lp = Mathf.Clamp(landPercent, 0, 100);
+        var originR = Mathf.Clamp(originPatchChebyshevRadius, 0, ShellAppConfig.MaxStartupOriginPatchChebyshevRadius);
+        _landPctSlider.Value = lp;
+        _mapSeedSpinBox.Value = seed;
+        _startAreaPatchSlider.Value = originR;
+        UpdateMapLandWaterLabel((int)lp);
+        UpdateStartAreaPatchLabel(originR);
+
+        _applyMapLandBtn.Disabled = !canEdit;
+        _randomSeedBtn.Disabled = !canEdit;
+        _mapSeedSpinBox.Editable = canEdit;
+        _startAreaPatchSlider.MouseFilter = canEdit ? MouseFilterEnum.Stop : MouseFilterEnum.Ignore;
+        _landPctSlider.MouseFilter = canEdit ? MouseFilterEnum.Stop : MouseFilterEnum.Ignore;
+        _mapLandWaterLabel.Modulate = canEdit ? Colors.White : new Color(0.65f, 0.65f, 0.68f);
+        _startAreaPatchLabel.Modulate = canEdit ? Colors.White : new Color(0.65f, 0.65f, 0.68f);
+    }
+
+    private void DeferredSyncMapPresetFromGameRoot()
+    {
+        _gridRoot ??= GetTree().CurrentScene?.GetNodeOrNull<GameRoot>("GridMap");
+        if (_gridRoot is null)
+        {
+            return;
+        }
+
+        SyncMapPresetUi(_gridRoot.ShellEffectiveLandPercent, _gridRoot.ShellEffectiveSeed,
+            _gridRoot.ShellEffectiveOriginPatchChebyshevRadius, _gridRoot.ShellCanApplyLandPercentPreset);
+    }
+
+    private void PopulateTerrainLegend()
+    {
+        var rows = GetNode<VBoxContainer>("RightPresetStack/TerrainLegendPanel/Margin/VBox/LegendRows");
+        foreach (var child in rows.GetChildren())
+        {
+            child.QueueFree();
+        }
+
+        foreach (var (label, rgb) in TerrainVisualColor.LegendSwatches)
+        {
+            var row = new HBoxContainer();
+            row.AddThemeConstantOverride("separation", 8);
+            var swatch = new ColorRect
+            {
+                CustomMinimumSize = new Vector2(16, 16),
+                Color = new Color(rgb.R, rgb.G, rgb.B),
+            };
+            var lbl = new Label
+            {
+                Text = label,
+                AutowrapMode = TextServer.AutowrapMode.WordSmart,
+                SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            };
+            lbl.AddThemeFontSizeOverride("font_size", 13);
+            lbl.AddThemeColorOverride("font_color", new Color(0.78f, 0.82f, 0.88f));
+            row.AddChild(swatch);
+            row.AddChild(lbl);
+            rows.AddChild(row);
+        }
+    }
+
+    private void OnLandPercentSliderChanged(double value)
+    {
+        UpdateMapLandWaterLabel(Mathf.RoundToInt((float)value));
+    }
+
+    private void OnStartAreaPatchSliderChanged(double value)
+    {
+        UpdateStartAreaPatchLabel(Mathf.RoundToInt((float)value));
+    }
+
+    private void UpdateStartAreaPatchLabel(int radiusCells)
+    {
+        radiusCells = Mathf.Clamp(radiusCells, 0, ShellAppConfig.MaxStartupOriginPatchChebyshevRadius);
+        _startAreaPatchLabel.Text =
+            $"Flat land patch radius {radiusCells} (map center + global 0,0)";
+    }
+
+    private void UpdateMapLandWaterLabel(int landPct)
+    {
+        landPct = Mathf.Clamp(landPct, 0, 100);
+        _mapLandWaterLabel.Text = $"Land {landPct}% — Water {100 - landPct}%";
+    }
+
+    private void OnApplyMapLandPressed()
+    {
+        _gridRoot ??= GetTree().CurrentScene?.GetNodeOrNull<GameRoot>("GridMap");
+        if (_gridRoot is null)
+        {
+            return;
+        }
+
+        _gridRoot.ApplyProceduralPresetFromHud(Mathf.RoundToInt((float)_landPctSlider.Value),
+            (int)_mapSeedSpinBox.Value,
+            Mathf.RoundToInt((float)_startAreaPatchSlider.Value));
+    }
+
+    private void OnRandomSeedPressed()
+    {
+        _gridRoot ??= GetTree().CurrentScene?.GetNodeOrNull<GameRoot>("GridMap");
+        if (_gridRoot is null || !_gridRoot.ShellCanApplyLandPercentPreset)
+        {
+            return;
+        }
+
+        var next = (int)(GD.Randi() % 2147483647);
+        _mapSeedSpinBox.Value = next;
+        _gridRoot.ApplyProceduralPresetFromHud(Mathf.RoundToInt((float)_landPctSlider.Value), next,
+            Mathf.RoundToInt((float)_startAreaPatchSlider.Value));
     }
 
     /// <summary>CanvasLayer children need explicit full-viewport rect so anchored children get real width (RichText layout).</summary>
@@ -236,149 +297,21 @@ public partial class ShellHudLayer : Control
         selected.SelfModulate = PresetBtnSelectedColor;
     }
 
-    private void SetSelectedFogPresetButton(Button selected)
-    {
-        _fogCinematicBtn.SelfModulate = PresetBtnNormalColor;
-        _fogBalancedBtn.SelfModulate = PresetBtnNormalColor;
-        _fogPerformanceBtn.SelfModulate = PresetBtnNormalColor;
-        selected.SelfModulate = PresetBtnSelectedColor;
-    }
-
-    private void OnFogSamplesSliderChanged(double value)
-    {
-        var samples = Mathf.Clamp((int)Mathf.Round(value), 2, 16);
-        _fogSamplesSlider.SetValueNoSignal(samples);
-        _gridRoot?.SetFogEdgeSamples(samples, "slider");
-        UpdateFogSamplesUi(samples);
-    }
-
-    private void UpdateFogSamplesUi(int samples)
-    {
-        _fogSamplesLabel.Text = $"Edge samples: {samples}";
-    }
-
-    private void OnFogSoftnessSliderChanged(double value)
-    {
-        var softness = Mathf.Clamp((float)value, 0.5f, 4.0f);
-        _fogSoftnessSlider.SetValueNoSignal(softness);
-        _gridRoot?.SetFogEdgeSoftness(softness, "slider");
-        UpdateFogSoftnessUi(softness);
-    }
-
-    private void UpdateFogSoftnessUi(float softness)
-    {
-        _fogSoftnessLabel.Text = $"Edge softness: {softness:F2}";
-    }
-
-    private void OnFogEdgeWidthSliderChanged(double value)
-    {
-        var width = Mathf.Clamp((float)value, 0.25f, 2.5f);
-        _fogEdgeWidthSlider.SetValueNoSignal(width);
-        _gridRoot?.SetFogEdgeWidthCells(width, "slider");
-        UpdateFogEdgeWidthUi(width);
-    }
-
-    private void UpdateFogEdgeWidthUi(float width)
-    {
-        _fogEdgeWidthLabel.Text = $"Edge radius: {width:F2}";
-    }
-
-    private void OnFogVisualHzSliderChanged(double value)
-    {
-        var hz = Mathf.Clamp((int)Mathf.Round(value), 10, 240);
-        _fogVisualHzSlider.SetValueNoSignal(hz);
-        _gridRoot?.SetFogVisualUpdateHz(hz, "slider");
-        UpdateFogVisualHzUi(hz);
-    }
-
-    private void UpdateFogVisualHzUi(int hz)
-    {
-        _fogVisualHzLabel.Text = $"Visual update: {hz} Hz";
-    }
-
-    private void OnFogRevealLerpSliderChanged(double value)
-    {
-        var speed = Mathf.Clamp((float)value, 0.5f, 40.0f);
-        _fogRevealLerpSlider.SetValueNoSignal(speed);
-        _gridRoot?.SetFogRevealLerpSpeed(speed, "slider");
-        UpdateFogRevealLerpUi(speed);
-    }
-
-    private void UpdateFogRevealLerpUi(float speed)
-    {
-        _fogRevealLerpLabel.Text = $"Reveal lerp: {speed:F2}";
-    }
-
-    private void OnFogBrushCoreSliderChanged(double value)
-    {
-        var ratio = Mathf.Clamp((float)value, 0.2f, 0.95f);
-        _fogBrushCoreSlider.SetValueNoSignal(ratio);
-        _gridRoot?.SetFogBrushHardCoreRatio(ratio, "slider");
-        UpdateFogBrushCoreUi(ratio);
-    }
-
-    private void UpdateFogBrushCoreUi(float ratio)
-    {
-        _fogBrushCoreLabel.Text = $"Brush core: {ratio:F2}";
-    }
-
-    private void OnFogBrushFeatherSliderChanged(double value)
-    {
-        var exponent = Mathf.Clamp((float)value, 0.5f, 4.0f);
-        _fogBrushFeatherSlider.SetValueNoSignal(exponent);
-        _gridRoot?.SetFogBrushFeatherExponent(exponent, "slider");
-        UpdateFogBrushFeatherUi(exponent);
-    }
-
-    private void UpdateFogBrushFeatherUi(float exponent)
-    {
-        _fogBrushFeatherLabel.Text = $"Brush feather: {exponent:F2}";
-    }
-
     private void TogglePerfPanel()
     {
         _perfPresetContent.Visible = !_perfPresetContent.Visible;
         RefreshPanelToggleGlyphs();
     }
 
-    private void ToggleFogPanel()
-    {
-        _fogPresetContent.Visible = !_fogPresetContent.Visible;
-        RefreshPanelToggleGlyphs();
-    }
-
     private void RefreshPanelToggleGlyphs()
     {
         _perfToggleBtn.Text = _perfPresetContent.Visible ? "▼" : "▶";
-        _fogToggleBtn.Text = _fogPresetContent.Visible ? "▼" : "▶";
     }
 
     private void ResetPerfPanelDefaults()
     {
         _gridRoot?.ApplyPerfPreset(ResetPerfRenderScale, ResetPerfMaxFps, ResetPerfVsyncMode, "reset");
         SetSelectedPresetButton(_nativeBtn);
-    }
-
-    private void ResetFogPanelDefaults()
-    {
-        _gridRoot?.ApplyFogPreset(ResetFogEdgeEnabled, ResetFogEdgeOpacity, ResetFogEdgeWidth, ResetFogEdgeSoftness,
-            ResetFogEdgeSamples, "reset");
-        _fogSamplesSlider.SetValueNoSignal(ResetFogEdgeSamples);
-        _fogSoftnessSlider.SetValueNoSignal(ResetFogEdgeSoftness);
-        _fogEdgeWidthSlider.SetValueNoSignal(ResetFogEdgeWidth);
-        _fogVisualHzSlider.SetValueNoSignal(ResetFogVisualUpdateHz);
-        _fogRevealLerpSlider.SetValueNoSignal(ResetFogRevealLerpSpeed);
-        _fogBrushCoreSlider.SetValueNoSignal(ResetFogBrushHardCoreRatio);
-        _fogBrushFeatherSlider.SetValueNoSignal(ResetFogBrushFeatherExponent);
-        _gridRoot?.SetFogSmoothingSettings(ResetFogVisualUpdateHz, ResetFogRevealLerpSpeed, ResetFogBrushHardCoreRatio,
-            ResetFogBrushFeatherExponent, "reset");
-        UpdateFogSamplesUi(ResetFogEdgeSamples);
-        UpdateFogSoftnessUi(ResetFogEdgeSoftness);
-        UpdateFogEdgeWidthUi(ResetFogEdgeWidth);
-        UpdateFogVisualHzUi(ResetFogVisualUpdateHz);
-        UpdateFogRevealLerpUi(ResetFogRevealLerpSpeed);
-        UpdateFogBrushCoreUi(ResetFogBrushHardCoreRatio);
-        UpdateFogBrushFeatherUi(ResetFogBrushFeatherExponent);
     }
 
     public void SetBootText(string text) => _bootLabel.Text = text;
@@ -392,8 +325,6 @@ public partial class ShellHudLayer : Control
     public void SetZoomReadout(string text) => _zoomLabel.Text = text;
 
     public void SetRevisionReadout(string text) => _revisionLabel.Text = text;
-
-    public void SetPlayerPositionText(string text) => _playerPosLabel.Text = text;
 
     /// <summary>When true, board-level game input (e.g. discrete sub-steps) should be ignored.</summary>
     public bool IsModalHudOpen => _pauseMenuRoot.Visible || _mapWorkbench.Visible;

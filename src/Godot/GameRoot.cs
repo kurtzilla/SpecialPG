@@ -19,13 +19,7 @@ public partial class GameRoot : Node2D
     private const string ShellRevisionLogPath = "res://../../docs/shell-feature-revision-log.md";
 
     /// <summary>Bump when you add user-visible shell behavior; add a line to <see cref="ShellFeatureChangelogLines"/>.</summary>
-    private const int ShellFeatureRevision = 28;
-
-    /// <summary>First fog reveal after session start uses this multiplier on configured half-extents (linear per axis).</summary>
-    private const int InitialFogRevealHalfExtentMultiplier = 1;
-
-    /// <summary>Internal baseline (cell units) for <see cref="ShellAppConfig.StartupRevealScale"/>; k × max(chunkW, chunkH). Not shown in player UI.</summary>
-    private const float StartupRevealBaselineChunkMultiplier = 2.5f;
+    private const int ShellFeatureRevision = 35;
 
     private const int StartupZoomNudgeFloorCellSpan = 512;
 
@@ -39,42 +33,31 @@ public partial class GameRoot : Node2D
         "Core WorldState + walkable tiles + vertical link traversal rules.",
         "HUD: live map stats, source, integrity.",
         "WorldMap JSON load; MapIntegrity errors reject bad files.",
-        "Cold start at world (0,0); fog-of-war reveal (2× half-extents once); default map size from config.ini (human-scale defaults); wheel zoom via unhandled input.",
+        "Cold start at world (0,0); default map size from config.ini (human-scale defaults); wheel zoom via unhandled input.",
         "Root ShellHudLayer: ESC pause menu (Quit first, Resume); HUD off GridMap CanvasLayer.",
         "Upper-right world XY uses fixed 2 decimal places (F2), not 2 significant figures.",
         "Upper-right FPS line above coords; public GameRoot.ShellFps (smoothed).",
-        "Perf: ray-pick HUD only on cell change; physics skips GameRoot.QueueRedraw on move when GPU fog (terrain uses camera transform).",
         "Top-right stack: perf + FPS + coords + FLR + ZOM.",
         "HUD readouts throttled (~12Hz) to stay snappy without per-frame text churn.",
         "Config knobs: render_scale / max_fps / vsync_mode for quick perf profiling.",
-        "Fog: GPU mask + shader overlay path (world-space texture) with CPU legacy toggle on F6.",
         "Pause menu: Map generator / Map editor (shared land-water UI); GameRoot.ApplyMapFromWorkbench + MapSaveEnvelope types.",
         "Cold start: procedural map from config.ini startup_seed / startup_land_percent (startup_use_json_sample for JSON-first dev).",
         "TileTraversal: water surface (elevation below threshold) is never walkable.",
         "Sub-tile grid (16×16 per cell): Core TryStepSubTile + SubTileTraversal; shell foot collision + actor sync use fractional cell position.",
         "WASD: discrete one sub-tile step per key event (incl. repeat); continuous pixel glide removed from ShellPlayer.",
-        "Fog reveal: float actor center + land-only sub sampling (Core + GPU mask) so shorelines follow noise, not whole tiles.",
         "Milestone 7: TerrainVisualColor + subdivided board draw + workbench preview sample continuous noise for coast/hill tint.",
         "Milestone 8: MapIntegrity.ValidateModification / ValidateVerticalLink for local link walkability without full-map scan.",
-        "Cold start visibility: smaller default map; fog board configured before first reveal; startup_reveal_scale widens first fog stamp (dimensionless); HUD map size line.",
+        "ColdStartView boot log (camera cull vs actor).",
+        "WASD: physics-timed discrete steps (immediate first step on press, steady repeat while held; no OS repeat delay).",
+        "REV 33: All fog-of-war and fog overlay code removed; terrain always renders, no reveal mask, no shader.",
+        "REV 34: Spawn at global (0,0) with procedural land-bridge to LCC; HUD hover tile under stats; grid line canvas transform fix.",
+        "REV 35: Procedural maps centered on tile (0,0); hover uses global canvas transform; grid stroke scales at low zoom; larger shell fonts.",
     };
 
-    private static readonly Color GridLineColor = new(0.17f, 0.18f, 0.21f, 0.62f);
+    private static readonly Color GridLineColor = new(0.085f, 0.09f, 0.105f, 0.81f);
 
-    /// <summary>Milestone 7: sub-rectangles per cell for smooth shoreline (1 = legacy flat fill).</summary>
-    private const int TerrainContourSubdivisions = 2;
-
-    private static readonly Color FogOverlayColor = new(0.04f, 0.05f, 0.08f, 0.90f);
-    private Color _fogVisualColor = FogOverlayColor;
-    private FogRenderMode _fogRenderMode = FogRenderMode.GpuMaskOverlay;
-    private float _fogEdgeWidthCells = 1.0f;
-    private float _fogEdgeSoftness = 1.6f;
-    private int _fogEdgeSamples = 6;
-    private int _fogMaskPixelsPerCell = 8;
-    private int _fogVisualUpdateHz = 60;
-    private float _fogRevealLerpSpeed = 10.0f;
-    private float _fogBrushHardCoreRatio = 0.72f;
-    private float _fogBrushFeatherExponent = 1.40f;
+    /// <summary>Sub-rectangles per cell for smoother shoreline when &gt; 1; shell uses 1 so each cell is one flat fill (no inner seams).</summary>
+    private const int TerrainContourSubdivisions = 1;
 
     private ShellAppConfig _shell = null!;
     private float _cellSizePx = 32f;
@@ -90,13 +73,11 @@ public partial class GameRoot : Node2D
     private Vector2 _lastPhysicsRedrawPlayerPos = new(float.NaN, float.NaN);
     private Vector2 _lastPhysicsRedrawZoom = new(float.NaN, float.NaN);
     private double _hudReadoutAccumS = 1.0;
-    private double _visualFogStampAccumS;
-    private bool _fogFirstRevealApplied;
+    private ulong _lastBlockedStepLogMs;
 
     private WorldState _world = null!;
     private int[] _presentZs = Array.Empty<int>();
     private DebugGridOverlay? _debugGridOverlay;
-    private FogOverlayRenderer? _fogOverlayRenderer;
     private DebugChannelPanel? _debugChannelPanel;
     private string _mapSourceSummary = "";
     private int _integrityErrorCount;
@@ -105,34 +86,27 @@ public partial class GameRoot : Node2D
 
     private SessionMapOrigin _sessionMapOrigin;
     private MapGenerationParameters? _committedGenerationParameters;
-
-    private enum FogRenderMode
-    {
-        LegacyTileCpu,
-        GpuMaskOverlay,
-    }
+    private int? _committedOriginPatchChebyshevRadius;
 
     /// <summary>Dev-only polyline on Z=0 for the Paths debug channel (see <see cref="ApplyDebugPlaceholders"/>).</summary>
     private readonly List<Vector2I> _debugPlaceholderPath = new();
 
     private const int DebugPlaceholderRngSeed = unchecked((int)0xC0FFEE);
     private const double HudReadoutIntervalS = 1.0 / 12.0;
-    private double _visualFogStampIntervalS = 1.0 / 60.0;
+    private const ulong BlockedStepLogIntervalMs = 250;
+
+    /// <summary>
+    /// WASD steps per second while keys are held (physics-driven; avoids OS key-repeat delay).
+    /// </summary>
+    private const double WasdStepsPerSecond = 14.0;
+
+    private double _wasdStepDebtAccum;
+    private bool _wasdKeysHeldLastPhysics;
 
     private readonly record struct RuntimeConfigSnapshot(
         float RenderScale,
         int MaxFps,
-        int VsyncMode,
-        bool FogGpuEnabled,
-        float FogEdgeOpacity,
-        float FogEdgeWidthCells,
-        float FogEdgeSoftness,
-        int FogEdgeSamples,
-        int FogMaskPixelsPerCell,
-        int FogVisualUpdateHz,
-        float FogRevealLerpSpeed,
-        float FogBrushHardCoreRatio,
-        float FogBrushFeatherExponent);
+        int VsyncMode);
 
     public int ShellMapWidth => _world.Map.Width;
 
@@ -154,6 +128,24 @@ public partial class GameRoot : Node2D
 
     public MapGenerationParameters? ShellCommittedGenerationParameters => _committedGenerationParameters;
 
+    /// <summary>Land %% target for the active procedural session (committed parameters or config).</summary>
+    public int ShellEffectiveLandPercent =>
+        _committedGenerationParameters?.LandPercent ?? _shell.StartupLandPercent;
+
+    /// <summary>Noise seed for HUD (committed generation, else terrain config on the active map, else config).</summary>
+    public int ShellEffectiveSeed =>
+        _committedGenerationParameters?.Seed
+        ?? (_world is not null ? _world.Map.TerrainConfig.Seed : _shell.StartupSeed);
+
+    /// <summary>HUD knob for guaranteed flat land radius at global (0,0); committed procedural session else config.</summary>
+    public int ShellEffectiveOriginPatchChebyshevRadius =>
+        _committedOriginPatchChebyshevRadius ?? _shell.StartupOriginPatchChebyshevRadius;
+
+    /// <summary>Land %% slider + regenerate apply only when not using the JSON sample map.</summary>
+    public bool ShellCanApplyLandPercentPreset =>
+        !_shell.StartupUseJsonSample &&
+        (_sessionMapOrigin is SessionMapOrigin.ProceduralColdStart or SessionMapOrigin.ProceduralWorkbench);
+
     public WorldMap ShellWorldMap => _world.Map;
 
     public bool ShellCanOpenMapEditor =>
@@ -165,13 +157,6 @@ public partial class GameRoot : Node2D
     public float ShellCellSizePixels => _cellSizePx;
 
     public float MoveSpeedPxS => _shell.MoveSpeedPxS;
-    public int ShellFogEdgeSamples => _fogEdgeSamples;
-    public float ShellFogEdgeSoftness => _fogEdgeSoftness;
-    public float ShellFogEdgeWidthCells => _fogEdgeWidthCells;
-    public int ShellFogVisualUpdateHz => _fogVisualUpdateHz;
-    public float ShellFogRevealLerpSpeed => _fogRevealLerpSpeed;
-    public float ShellFogBrushHardCoreRatio => _fogBrushHardCoreRatio;
-    public float ShellFogBrushFeatherExponent => _fogBrushFeatherExponent;
 
     /// <summary>Smoothed frames per second from <see cref="Engine.GetFramesPerSecond"/>; updated each <c>_Process</c> for HUD and external readers.</summary>
     public float ShellFps { get; private set; }
@@ -251,19 +236,6 @@ public partial class GameRoot : Node2D
     {
         _shell = ShellAppConfig.LoadOrDefault();
         _cellSizePx = _shell.CellSizePx;
-        _fogVisualColor = new Color(FogOverlayColor.R, FogOverlayColor.G, FogOverlayColor.B,
-            Mathf.Clamp(_shell.FogEdgeOpacity, 0f, 1f));
-        _fogRenderMode = _shell.FogGpuEnabled ? FogRenderMode.GpuMaskOverlay : FogRenderMode.LegacyTileCpu;
-        _fogEdgeWidthCells = _shell.FogEdgeWidthCells;
-        _fogEdgeSoftness = _shell.FogEdgeSoftness;
-        _fogEdgeSamples = _shell.FogEdgeSamples;
-        _fogMaskPixelsPerCell = _shell.FogMaskPixelsPerCell;
-        _fogVisualUpdateHz = _shell.FogVisualUpdateHz;
-        _fogRevealLerpSpeed = _shell.FogRevealLerpSpeed;
-        _fogBrushHardCoreRatio = _shell.FogBrushHardCoreRatio;
-        _fogBrushFeatherExponent = _shell.FogBrushFeatherExponent;
-        _visualFogStampIntervalS = 1.0 / Math.Max(1, _fogVisualUpdateHz);
-        ApplyPerfPreset(_shell.RenderScale, _shell.MaxFps, _shell.VsyncMode, "config", trackUndo: false, persist: false);
         EnsureUiCancelBinding();
 
         var parent = GetParent();
@@ -277,19 +249,6 @@ public partial class GameRoot : Node2D
         if (_debugGridOverlay is null)
         {
             GD.PushWarning("[GameRoot] Missing DebugGridOverlay node; debug overlay drawing is disabled.");
-        }
-
-        _fogOverlayRenderer = GetNodeOrNull<FogOverlayRenderer>("FogOverlayRenderer");
-        if (_fogOverlayRenderer is null)
-        {
-            GD.PushWarning("[GameRoot] Missing FogOverlayRenderer node; fallback CPU fog tile mode is forced.");
-            _fogRenderMode = FogRenderMode.LegacyTileCpu;
-        }
-        else
-        {
-            _fogOverlayRenderer.Visible = _fogRenderMode == FogRenderMode.GpuMaskOverlay;
-            _fogOverlayRenderer.ConfigureRevealSmoothing(_fogRevealLerpSpeed, _fogBrushHardCoreRatio,
-                _fogBrushFeatherExponent, _fogVisualUpdateHz);
         }
 
         _debugChannelPanel = parent?.GetNodeOrNull<DebugChannelPanel>("ShellUi/ShellHudRoot/LeftHudColumn/DebugChannelPanel");
@@ -315,6 +274,7 @@ public partial class GameRoot : Node2D
 
         _sessionMapOrigin = SessionMapOrigin.Unknown;
         _committedGenerationParameters = null;
+        _committedOriginPatchChebyshevRadius = null;
 
         // Future: when loading a save game, deserialize WorldMap from the save envelope here and skip cold-start selection.
         WorldMap map;
@@ -341,12 +301,19 @@ public partial class GameRoot : Node2D
         else
         {
             var parameters = MapGenerationParameters.Create(_shell.StartupSeed, _shell.StartupLandPercent);
+            var originR = Mathf.Clamp(_shell.StartupOriginPatchChebyshevRadius, 0,
+                ShellAppConfig.MaxStartupOriginPatchChebyshevRadius);
+            _committedOriginPatchChebyshevRadius = originR;
+            var (procMinX, procMinY) = ProceduralMapMinCorner(_shell.DefaultMapWidthCells, _shell.DefaultMapHeightCells);
             map = ProceduralWorldMapGenerator.BuildBoundedWorld(
                 _shell.DefaultMapWidthCells,
                 _shell.DefaultMapHeightCells,
                 _shell.ChunkWidthCells,
                 _shell.ChunkHeightCells,
-                parameters);
+                parameters,
+                minX: procMinX,
+                minY: procMinY,
+                originPatchChebyshevRadius: originR);
             _committedGenerationParameters = parameters;
             _sessionMapOrigin = SessionMapOrigin.ProceduralColdStart;
             _mapSourceSummary =
@@ -354,16 +321,105 @@ public partial class GameRoot : Node2D
         }
 
         BootstrapWorldFromMap(map, logBootLine: true);
+        // Apply after world exists so any QueueRedraw from perf setup cannot run against a null _world,
+        // and the first terrain draw sees the final window/max_fps/vsync state.
+        ApplyPerfPreset(_shell.RenderScale, _shell.MaxFps, _shell.VsyncMode, "config", trackUndo: false, persist: false);
     }
 
     /// <summary>Replace the active session map (e.g. map workbench commit).</summary>
-    public void ApplyMapFromWorkbench(WorldMap map, MapGenerationParameters parameters)
+    public void ApplyMapFromWorkbench(WorldMap map, MapGenerationParameters parameters,
+        int originPatchChebyshevRadius)
+    {
+        _committedOriginPatchChebyshevRadius = Mathf.Clamp(originPatchChebyshevRadius, 0,
+            ShellAppConfig.MaxStartupOriginPatchChebyshevRadius);
+        ApplySessionMapFromGeneration(map, parameters, SessionMapOrigin.ProceduralWorkbench,
+            $"Map workbench seed {parameters.Seed} land={parameters.LandPercent}%");
+    }
+
+    /// <summary>
+    /// Replace the session from a <see cref="MapGenerationParameters"/> snapshot (workbench, save envelope, etc.).
+    /// </summary>
+    public void ApplySessionMapFromGeneration(WorldMap map, MapGenerationParameters generation,
+        SessionMapOrigin origin, string mapSourceSummary)
     {
         ArgumentNullException.ThrowIfNull(map);
-        _committedGenerationParameters = parameters;
-        _sessionMapOrigin = SessionMapOrigin.ProceduralWorkbench;
-        _mapSourceSummary = $"Map workbench seed {parameters.Seed} land={parameters.LandPercent}%";
+        _committedGenerationParameters = generation;
+        if (origin is SessionMapOrigin.JsonLoaded or SessionMapOrigin.SaveEnvelopeLoaded)
+        {
+            _committedOriginPatchChebyshevRadius = null;
+        }
+
+        _sessionMapOrigin = origin;
+        _mapSourceSummary = mapSourceSummary;
         BootstrapWorldFromMap(map, logBootLine: false);
+    }
+
+    /// <summary>Rebuild procedural map from HUD controls; persists startup land %%, seed, and origin-patch radius.</summary>
+    public void ApplyProceduralPresetFromHud(int landPercent, int seed, int originPatchChebyshevRadius)
+    {
+        if (!ShellCanApplyLandPercentPreset)
+        {
+            GD.Print("[GameRoot] Map preset applies only to procedural cold start / workbench sessions.");
+            return;
+        }
+
+        landPercent = Mathf.Clamp(landPercent, 0, 100);
+        var persistLandErr = ShellAppConfig.PersistStartupLandPercent(landPercent);
+        if (persistLandErr != Error.Ok)
+        {
+            GD.PushWarning($"[GameRoot] Persist startup_land_percent failed: {persistLandErr}");
+        }
+
+        var persistSeedErr = ShellAppConfig.PersistStartupSeed(seed);
+        if (persistSeedErr != Error.Ok)
+        {
+            GD.PushWarning($"[GameRoot] Persist startup_seed failed: {persistSeedErr}");
+        }
+
+        originPatchChebyshevRadius = Mathf.Clamp(originPatchChebyshevRadius, 0,
+            ShellAppConfig.MaxStartupOriginPatchChebyshevRadius);
+        var persistOriginErr = ShellAppConfig.PersistStartupOriginPatchChebyshevRadius(originPatchChebyshevRadius);
+        if (persistOriginErr != Error.Ok)
+        {
+            GD.PushWarning($"[GameRoot] Persist startup_origin_patch_chebyshev_radius failed: {persistOriginErr}");
+        }
+
+        _shell = ShellAppConfig.LoadOrDefault();
+
+        var parameters = MapGenerationParameters.Create(seed, landPercent);
+        _committedOriginPatchChebyshevRadius = originPatchChebyshevRadius;
+        var (procMinX, procMinY) = ProceduralMapMinCorner(_shell.DefaultMapWidthCells, _shell.DefaultMapHeightCells);
+        var map = ProceduralWorldMapGenerator.BuildBoundedWorld(
+            _shell.DefaultMapWidthCells,
+            _shell.DefaultMapHeightCells,
+            _shell.ChunkWidthCells,
+            _shell.ChunkHeightCells,
+            parameters,
+            minX: procMinX,
+            minY: procMinY,
+            originPatchChebyshevRadius: originPatchChebyshevRadius);
+
+        _committedGenerationParameters = parameters;
+        var preservedOrigin = _sessionMapOrigin;
+        _mapSourceSummary =
+            $"Procedural seed {parameters.Seed} land={parameters.LandPercent}% ({_shell.DefaultMapWidthCells}×{_shell.DefaultMapHeightCells})";
+
+        BootstrapWorldFromMap(map, logBootLine: false);
+
+        _sessionMapOrigin = preservedOrigin is SessionMapOrigin.ProceduralWorkbench
+            ? SessionMapOrigin.ProceduralWorkbench
+            : SessionMapOrigin.ProceduralColdStart;
+
+        ApplyPerfPreset(_shell.RenderScale, _shell.MaxFps, _shell.VsyncMode, "after-map-regen", trackUndo: false,
+            persist: false);
+        RefreshShellHud();
+    }
+
+    /// <summary>Rebuild procedural map using committed/config seed and current origin-patch radius (compat convenience).</summary>
+    public void ApplyProceduralLandPercentFromHud(int landPercent)
+    {
+        var seed = _committedGenerationParameters?.Seed ?? _shell.StartupSeed;
+        ApplyProceduralPresetFromHud(landPercent, seed, ShellEffectiveOriginPatchChebyshevRadius);
     }
 
     private void BootstrapWorldFromMap(WorldMap map, bool logBootLine)
@@ -372,16 +428,12 @@ public partial class GameRoot : Node2D
         if (!map.IsBounded)
             throw new NotSupportedException(
                 "Unbounded maps are Core-only until streaming shell work lands; use a bounded WorldMap in the Godot shell.");
-        if ((long)map.Width * map.Height < 4_000_000L)
-            WaterTerrainRules.ApplyMinimumWaterBlobSizeTwoByTwo(map);
-
         var parent = GetParent();
-        _fogFirstRevealApplied = false;
 
         var floor0 = map.GetOrCreateFloor(0);
-        var spawnGx = floor0.MinX + floor0.Width / 2;
-        var spawnGy = floor0.MinY + floor0.Height / 2;
-        _world = new WorldState(map, spawnGx, spawnGy, 0);
+        var originGx = Mathf.Clamp(0, floor0.MinX, floor0.MinX + floor0.Width - 1);
+        var originGy = Mathf.Clamp(0, floor0.MinY, floor0.MinY + floor0.Height - 1);
+        _world = new WorldState(map, originGx, originGy, 0);
 
         RefreshPresentZs();
         if (_presentZs.Length == 0)
@@ -396,27 +448,38 @@ public partial class GameRoot : Node2D
         RevalidateIntegrity();
 
         floor0 = map.GetOrCreateFloor(0);
-        var centerGx = floor0.MinX + floor0.Width / 2;
-        var centerGy = floor0.MinY + floor0.Height / 2;
-        if (!TryFindWalkableSpawnNearCenter(floor0, centerGx, centerGy, out var walkGx, out var walkGy))
+        originGx = Mathf.Clamp(0, floor0.MinX, floor0.MinX + floor0.Width - 1);
+        originGy = Mathf.Clamp(0, floor0.MinY, floor0.MinY + floor0.Height - 1);
+        var terrainCfg = _world.Map.TerrainConfig;
+        if (TileTraversal.IsWalkable(floor0.Get(originGx, originGy), terrainCfg) &&
+            IsSubTileSpawnViable(_world.Map, _world.ActorZ, originGx, originGy, _world.TerrainEvaluator))
         {
-            GD.PrintErr("[GameRoot] No walkable cell found near map center; actor left at clamped spawn.");
+            _world.SetActorCellFromShell(originGx, originGy, _world.ActorZ);
         }
         else
         {
-            _world.SetActorCellFromShell(walkGx, walkGy, _world.ActorZ);
+            var centerGx = floor0.MinX + floor0.Width / 2;
+            var centerGy = floor0.MinY + floor0.Height / 2;
+            if (!TryFindWalkableSpawnNearCenter(floor0, centerGx, centerGy, out var walkGx, out var walkGy))
+            {
+                GD.PrintErr(
+                    "[GameRoot] No walkable cell near map center; origin (0,0) not viable; actor left at clamped spawn.");
+            }
+            else
+            {
+                GD.Print(
+                    $"[GameRoot] Origin ({originGx},{originGy}) not viable; spawned on largest landmass near center at ({walkGx},{walkGy}).");
+                _world.SetActorCellFromShell(walkGx, walkGy, _world.ActorZ);
+            }
         }
 
-        ConfigureFogOverlayForActiveFloor();
-        // Prime GPU fog before Snap so the first reveal uses startup boost while _fogFirstRevealApplied is still false;
-        // Snap's SyncActorFromPlayerFoot calls ApplyFogAroundActor (CPU + GPU) with the same actor center.
-        PrimeInitialFogVisual();
         if (_shellPlayer is not null)
         {
             SnapPlayerToActorCell();
         }
 
         MaybeNudgeStartupZoomForLargeFloor();
+        LogColdStartViewDiagnostics(logBootLine);
         RefreshShellHud();
         if (logBootLine)
         {
@@ -425,6 +488,8 @@ public partial class GameRoot : Node2D
 
         QueueRedraw();
         QueueDebugOverlayRedrawIfVisible();
+        // One deferred redraw after the tree is fully settled (fixes occasional first-frame blank view on some GPUs / window modes).
+        Callable.From(QueueRedraw).CallDeferred();
 
         parent?.GetNodeOrNull<InteractionRay3D>("Interaction3D")?.RebuildPickGeometry();
 
@@ -437,7 +502,7 @@ public partial class GameRoot : Node2D
         var sample = floor.Get(1, 1);
         var activeCamera = GetViewport().GetCamera2D();
         var cameraName = activeCamera is null ? "(none)" : activeCamera.Name.ToString();
-        GD.Print($"[GameRoot] Ready: map {_world.Map.Width}x{_world.Map.Height}, cell={_cellSizePx}px, floors=[{string.Join(",", _presentZs)}], ActorZ={_world.ActorZ}, source=\"{_mapSourceSummary}\", hudBound={_shellHud is not null}, activeCamera2D={cameraName}, fogMode={_fogRenderMode}, edgeWidth={_fogEdgeWidthCells:F2}, edgeSoftness={_fogEdgeSoftness:F2}, edgeSamples={_fogEdgeSamples}, maskPpc={_fogMaskPixelsPerCell}, sample ElevBucket={sample.ElevationBucket}.");
+        GD.Print($"[GameRoot] Ready: map {_world.Map.Width}x{_world.Map.Height}, cell={_cellSizePx}px, floors=[{string.Join(",", _presentZs)}], ActorZ={_world.ActorZ}, source=\"{_mapSourceSummary}\", hudBound={_shellHud is not null}, activeCamera2D={cameraName}, sample ElevBucket={sample.ElevationBucket}.");
     }
 
     public void ApplyPerfPreset(float renderScale, int maxFps, int vsyncMode, string presetName, bool trackUndo = true,
@@ -484,194 +549,6 @@ public partial class GameRoot : Node2D
             $"[GameRoot] Perf preset={presetName} render_scale(requested)={_activeRenderScale:F2}, content_scale=1.00, max_fps={_activeMaxFps}, vsync_mode={_activeVsyncMode}.");
     }
 
-    public void ApplyFogPreset(bool edgeEnabled, float edgeOpacity, float edgeWidthCells, float edgeSoftness, int edgeSamples,
-        string presetName, bool trackUndo = true, bool persist = true)
-    {
-        if (trackUndo)
-        {
-            PushRuntimeConfigUndoSnapshot();
-        }
-
-        _fogRenderMode = edgeEnabled ? FogRenderMode.GpuMaskOverlay : FogRenderMode.LegacyTileCpu;
-        _fogEdgeWidthCells = Mathf.Clamp(edgeWidthCells, 0.25f, 2.5f);
-        _fogEdgeSoftness = Mathf.Clamp(edgeSoftness, 0.5f, 4.0f);
-        _fogEdgeSamples = Mathf.Clamp(edgeSamples, 2, 16);
-        _fogVisualColor = new Color(FogOverlayColor.R, FogOverlayColor.G, FogOverlayColor.B, Mathf.Clamp(edgeOpacity, 0f, 1f));
-        _fogOverlayRenderer?.ConfigureStyle(_fogVisualColor, _fogEdgeWidthCells, _fogEdgeSoftness, _fogEdgeSamples,
-            _fogRenderMode == FogRenderMode.GpuMaskOverlay);
-
-        RefreshShellHud();
-        QueueRedraw();
-        if (persist)
-        {
-            PersistRuntimeShellSettings();
-        }
-
-        GD.Print(
-            $"[GameRoot] Fog preset={presetName} mode={_fogRenderMode}, edge_opacity={_fogVisualColor.A:F2}, edge_width={_fogEdgeWidthCells:F2}, edge_softness={_fogEdgeSoftness:F2}, edge_samples={_fogEdgeSamples}.");
-    }
-
-    public void SetFogEdgeSamples(int edgeSamples, string sourceTag = "runtime", bool trackUndo = true, bool persist = true)
-    {
-        if (trackUndo)
-        {
-            PushRuntimeConfigUndoSnapshot();
-        }
-
-        _fogEdgeSamples = Mathf.Clamp(edgeSamples, 2, 16);
-        _fogOverlayRenderer?.ConfigureStyle(_fogVisualColor, _fogEdgeWidthCells, _fogEdgeSoftness, _fogEdgeSamples,
-            _fogRenderMode == FogRenderMode.GpuMaskOverlay);
-        RefreshShellHud();
-        QueueRedraw();
-        if (persist)
-        {
-            PersistRuntimeShellSettings();
-        }
-
-        GD.Print($"[GameRoot] Fog edge samples updated ({sourceTag}) => {_fogEdgeSamples}.");
-    }
-
-    public void SetFogEdgeSoftness(float edgeSoftness, string sourceTag = "runtime", bool trackUndo = true, bool persist = true)
-    {
-        if (trackUndo)
-        {
-            PushRuntimeConfigUndoSnapshot();
-        }
-
-        _fogEdgeSoftness = Mathf.Clamp(edgeSoftness, 0.5f, 4.0f);
-        _fogOverlayRenderer?.ConfigureStyle(_fogVisualColor, _fogEdgeWidthCells, _fogEdgeSoftness, _fogEdgeSamples,
-            _fogRenderMode == FogRenderMode.GpuMaskOverlay);
-        RefreshShellHud();
-        QueueRedraw();
-        if (persist)
-        {
-            PersistRuntimeShellSettings();
-        }
-
-        GD.Print($"[GameRoot] Fog edge softness updated ({sourceTag}) => {_fogEdgeSoftness:F2}.");
-    }
-
-    public void SetFogEdgeWidthCells(float edgeWidthCells, string sourceTag = "runtime", bool trackUndo = true, bool persist = true)
-    {
-        if (trackUndo)
-        {
-            PushRuntimeConfigUndoSnapshot();
-        }
-
-        _fogEdgeWidthCells = Mathf.Clamp(edgeWidthCells, 0.25f, 2.5f);
-        _fogOverlayRenderer?.ConfigureStyle(_fogVisualColor, _fogEdgeWidthCells, _fogEdgeSoftness, _fogEdgeSamples,
-            _fogRenderMode == FogRenderMode.GpuMaskOverlay);
-        RefreshShellHud();
-        QueueRedraw();
-        if (persist)
-        {
-            PersistRuntimeShellSettings();
-        }
-
-        GD.Print($"[GameRoot] Fog edge width updated ({sourceTag}) => {_fogEdgeWidthCells:F2}.");
-    }
-
-    public void SetFogVisualUpdateHz(int hz, string sourceTag = "runtime", bool trackUndo = true, bool persist = true)
-    {
-        if (trackUndo)
-        {
-            PushRuntimeConfigUndoSnapshot();
-        }
-
-        _fogVisualUpdateHz = Mathf.Clamp(hz, 10, 240);
-        _visualFogStampIntervalS = 1.0 / _fogVisualUpdateHz;
-        RefreshShellHud();
-        if (persist)
-        {
-            PersistRuntimeShellSettings();
-        }
-
-        GD.Print($"[GameRoot] Fog visual update hz updated ({sourceTag}) => {_fogVisualUpdateHz}.");
-    }
-
-    public void SetFogRevealLerpSpeed(float speed, string sourceTag = "runtime", bool trackUndo = true, bool persist = true)
-    {
-        if (trackUndo)
-        {
-            PushRuntimeConfigUndoSnapshot();
-        }
-
-        _fogRevealLerpSpeed = Mathf.Clamp(speed, 0.5f, 40.0f);
-        _fogOverlayRenderer?.ConfigureRevealSmoothing(_fogRevealLerpSpeed, _fogBrushHardCoreRatio, _fogBrushFeatherExponent,
-            _fogVisualUpdateHz);
-        RefreshShellHud();
-        if (persist)
-        {
-            PersistRuntimeShellSettings();
-        }
-
-        GD.Print($"[GameRoot] Fog reveal lerp speed updated ({sourceTag}) => {_fogRevealLerpSpeed:F2}.");
-    }
-
-    public void SetFogBrushHardCoreRatio(float ratio, string sourceTag = "runtime", bool trackUndo = true, bool persist = true)
-    {
-        if (trackUndo)
-        {
-            PushRuntimeConfigUndoSnapshot();
-        }
-
-        _fogBrushHardCoreRatio = Mathf.Clamp(ratio, 0.2f, 0.95f);
-        _fogOverlayRenderer?.ConfigureRevealSmoothing(_fogRevealLerpSpeed, _fogBrushHardCoreRatio, _fogBrushFeatherExponent,
-            _fogVisualUpdateHz);
-        RefreshShellHud();
-        if (persist)
-        {
-            PersistRuntimeShellSettings();
-        }
-
-        GD.Print($"[GameRoot] Fog brush hard-core ratio updated ({sourceTag}) => {_fogBrushHardCoreRatio:F2}.");
-    }
-
-    public void SetFogBrushFeatherExponent(float exponent, string sourceTag = "runtime", bool trackUndo = true,
-        bool persist = true)
-    {
-        if (trackUndo)
-        {
-            PushRuntimeConfigUndoSnapshot();
-        }
-
-        _fogBrushFeatherExponent = Mathf.Clamp(exponent, 0.5f, 4.0f);
-        _fogOverlayRenderer?.ConfigureRevealSmoothing(_fogRevealLerpSpeed, _fogBrushHardCoreRatio, _fogBrushFeatherExponent,
-            _fogVisualUpdateHz);
-        RefreshShellHud();
-        if (persist)
-        {
-            PersistRuntimeShellSettings();
-        }
-
-        GD.Print($"[GameRoot] Fog brush feather exponent updated ({sourceTag}) => {_fogBrushFeatherExponent:F2}.");
-    }
-
-    public void SetFogSmoothingSettings(int visualUpdateHz, float revealLerpSpeed, float brushHardCoreRatio,
-        float brushFeatherExponent, string sourceTag = "runtime", bool trackUndo = true, bool persist = true)
-    {
-        if (trackUndo)
-        {
-            PushRuntimeConfigUndoSnapshot();
-        }
-
-        _fogVisualUpdateHz = Mathf.Clamp(visualUpdateHz, 10, 240);
-        _visualFogStampIntervalS = 1.0 / _fogVisualUpdateHz;
-        _fogRevealLerpSpeed = Mathf.Clamp(revealLerpSpeed, 0.5f, 40.0f);
-        _fogBrushHardCoreRatio = Mathf.Clamp(brushHardCoreRatio, 0.2f, 0.95f);
-        _fogBrushFeatherExponent = Mathf.Clamp(brushFeatherExponent, 0.5f, 4.0f);
-        _fogOverlayRenderer?.ConfigureRevealSmoothing(_fogRevealLerpSpeed, _fogBrushHardCoreRatio, _fogBrushFeatherExponent,
-            _fogVisualUpdateHz);
-        RefreshShellHud();
-        if (persist)
-        {
-            PersistRuntimeShellSettings();
-        }
-
-        GD.Print(
-            $"[GameRoot] Fog smoothing updated ({sourceTag}) => hz={_fogVisualUpdateHz}, lerp={_fogRevealLerpSpeed:F2}, core={_fogBrushHardCoreRatio:F2}, feather={_fogBrushFeatherExponent:F2}.");
-    }
-
     public void OnRayPickUpdated()
     {
         RefreshShellHud();
@@ -697,8 +574,6 @@ public partial class GameRoot : Node2D
         _shellHud.SetPerfReadout($"{frameMs:F1} ms FTM");
         _shellHud.SetFpsReadout($"{Mathf.RoundToInt(ShellFps)} FPS");
 
-        var p = _camera2D.GlobalPosition;
-        _shellHud.SetPlayerPositionText($"{FormatWorldCoord(p.X)}, {FormatWorldCoord(p.Y)}");
         _shellHud.SetFloorReadout($"{_world.ActorZ} FLR");
         _shellHud.SetZoomReadout($"{FormatWorldCoord(_zoom.X)} ZOM");
     }
@@ -713,6 +588,8 @@ public partial class GameRoot : Node2D
         _camera2D.Position = _shellPlayer.Position;
         _camera2D.Zoom = _zoom;
 
+        TickWasdDiscreteMovement(delta);
+
         const float moveEpsSq = 1e-6f;
         var pos = _shellPlayer.Position;
         var moved = float.IsNaN(_lastPhysicsRedrawPlayerPos.X)
@@ -720,20 +597,58 @@ public partial class GameRoot : Node2D
         var zoomed = float.IsNaN(_lastPhysicsRedrawZoom.X) || _lastPhysicsRedrawZoom != _zoom;
         if (!moved && !zoomed)
         {
+            QueueDebugOverlayRedrawIfVisible();
             return;
         }
 
         _lastPhysicsRedrawPlayerPos = pos;
         _lastPhysicsRedrawZoom = _zoom;
-        _fogOverlayRenderer?.AdvanceRevealAnimation(delta);
-        StampVisualFogFromPlayer(delta);
 
-        // Fog GPU path redraws itself (stamp + animation). Legacy CPU fog draws inside GameRoot._Draw — repaint then.
-        // Omit GameRoot.QueueRedraw here for GPU fog so we avoid repainting every terrain tile + grid each physics tick while moving.
-        if (_fogRenderMode == FogRenderMode.LegacyTileCpu)
-            QueueRedraw();
+        // Camera moved (pan/zoom): repaint the visible terrain.
+        QueueRedraw();
 
         QueueDebugOverlayRedrawIfVisible();
+    }
+
+    /// <summary>
+    /// While WASD are held, advance discrete sub-steps at <see cref="WasdStepsPerSecond"/>; first step fires on the
+    /// frame keys become pressed (no wait for OS key-repeat).
+    /// </summary>
+    private void TickWasdDiscreteMovement(double delta)
+    {
+        if (_shellPlayer is null || _world is null)
+        {
+            _wasdStepDebtAccum = 0;
+            _wasdKeysHeldLastPhysics = false;
+            return;
+        }
+
+        if (_shellHud is not null && _shellHud.IsModalHudOpen)
+        {
+            _wasdStepDebtAccum = 0;
+            _wasdKeysHeldLastPhysics = false;
+            return;
+        }
+
+        if (!TryComputeWasdSubStepDelta(out _, out _))
+        {
+            _wasdStepDebtAccum = 0;
+            _wasdKeysHeldLastPhysics = false;
+            return;
+        }
+
+        if (!_wasdKeysHeldLastPhysics)
+            _wasdStepDebtAccum += 1.0;
+
+        _wasdKeysHeldLastPhysics = true;
+
+        _wasdStepDebtAccum += delta * WasdStepsPerSecond;
+        while (_wasdStepDebtAccum >= 1.0)
+        {
+            _wasdStepDebtAccum -= 1.0;
+            if (!TryApplyWasdSubTileStepOnce())
+                break;
+        }
     }
 
     /// <summary>Next <see cref="_PhysicsProcess"/> will schedule a redraw even if player X/Y and zoom are unchanged (e.g. floor index changed).</summary>
@@ -788,17 +703,6 @@ public partial class GameRoot : Node2D
             }
         }
 
-        // WASD discrete steps (allow Echo for OS key-repeat); handled before the generic Echo filter below.
-        if (@event is InputEventKey wasdKey && wasdKey.Pressed &&
-            wasdKey.PhysicalKeycode is Key.W or Key.A or Key.S or Key.D)
-        {
-            if (TryDiscreteSubTileStep(wasdKey))
-            {
-                GetViewport().SetInputAsHandled();
-                return;
-            }
-        }
-
         if (@event is not InputEventKey key || !key.Pressed || key.Echo)
         {
             return;
@@ -822,22 +726,6 @@ public partial class GameRoot : Node2D
 
             QueueDebugOverlayRedrawIfVisible();
 
-            RefreshShellHud();
-            QueueRedraw();
-            GetViewport().SetInputAsHandled();
-            return;
-        }
-
-        if (key.PhysicalKeycode == Key.F6)
-        {
-            PushRuntimeConfigUndoSnapshot();
-            _fogRenderMode = _fogRenderMode == FogRenderMode.GpuMaskOverlay
-                ? FogRenderMode.LegacyTileCpu
-                : FogRenderMode.GpuMaskOverlay;
-            _fogOverlayRenderer?.ConfigureStyle(_fogVisualColor, _fogEdgeWidthCells, _fogEdgeSoftness, _fogEdgeSamples,
-                _fogRenderMode == FogRenderMode.GpuMaskOverlay);
-            PersistRuntimeShellSettings();
-            GD.Print($"[GameRoot] Fog mode switched to {_fogRenderMode}.");
             RefreshShellHud();
             QueueRedraw();
             GetViewport().SetInputAsHandled();
@@ -893,6 +781,11 @@ public partial class GameRoot : Node2D
             _camera2D.Zoom = _zoom;
         }
 
+        if (_world is null)
+        {
+            return;
+        }
+
         var floor = ActiveFloorSlice;
         var origin = GetGridOrigin(floor.Width, floor.Height);
         var visible = GetExpandedVisibleCullRect();
@@ -933,8 +826,7 @@ public partial class GameRoot : Node2D
             }
         }
 
-        DrawGridLines(origin, floor.Width, floor.Height, visible);
-        DrawFogOverlay(origin, floor, visible, minGx, maxGx, minGy, maxGy);
+        DrawGridLines(floor, origin, visible);
     }
 
     private FloorSlice ActiveFloorSlice
@@ -990,7 +882,6 @@ public partial class GameRoot : Node2D
 
         RefreshPresentZs();
         SnapPlayerToActorCell();
-        ConfigureFogOverlayForActiveFloor();
         RefreshShellHud();
         MarkShellViewDirty();
         QueueRedraw();
@@ -999,7 +890,7 @@ public partial class GameRoot : Node2D
         return true;
     }
 
-    private bool TryDiscreteSubTileStep(InputEventKey key)
+    private bool TryApplyWasdSubTileStepOnce()
     {
         if (_shellPlayer is null)
         {
@@ -1011,20 +902,14 @@ public partial class GameRoot : Node2D
             return false;
         }
 
-        if (key.PhysicalKeycode is not (Key.W or Key.A or Key.S or Key.D))
-        {
-            return false;
-        }
-
         if (!TryComputeWasdSubStepDelta(out var dSubX, out var dSubY))
         {
             return false;
         }
 
-        var ax = _world.ActorX;
-        var ay = _world.ActorY;
         if (!_world.TryStepSubTile(dSubX, dSubY))
         {
+            LogStepBlockedDiagnostic(dSubX, dSubY);
             return false;
         }
 
@@ -1032,19 +917,37 @@ public partial class GameRoot : Node2D
         _shellPlayer.Position =
             CellSubCenterWorld(_world.ActorX, _world.ActorY, _world.ActorSubX, _world.ActorSubY, floor);
 
-        if (_world.ActorX != ax || _world.ActorY != ay)
-        {
-            ApplyFogAroundActor();
-        }
-
         _lastSyncedCell = new Vector2I(_world.ActorX, _world.ActorY);
         _lastSyncedActorZ = _world.ActorZ;
-        SyncActorFromPlayerFoot(forceHud: true);
         RefreshShellHud();
         MarkShellViewDirty();
         QueueRedraw();
         QueueDebugOverlayRedrawIfVisible();
         return true;
+    }
+
+    /// <summary>
+    /// Throttled <see cref="GD.Print"/> for blocked WASD steps. Reports the rejected sub-cell + reason from
+    /// <see cref="SubTileTraversal.DiagnoseUnwalkable"/> so movement bugs (mismatched spawn vs sub-noise water,
+    /// blocked tiles, bounds) are visible in the Godot console.
+    /// </summary>
+    private void LogStepBlockedDiagnostic(int dSubX, int dSubY)
+    {
+        var now = Time.GetTicksMsec();
+        if (now - _lastBlockedStepLogMs < BlockedStepLogIntervalMs)
+        {
+            return;
+        }
+
+        _lastBlockedStepLogMs = now;
+
+        SubTileGrid.AddSubDelta(_world.ActorX, _world.ActorSubX, dSubX, out var nx, out var nsx);
+        SubTileGrid.AddSubDelta(_world.ActorY, _world.ActorSubY, dSubY, out var ny, out var nsy);
+        var reason = SubTileTraversal.DiagnoseUnwalkable(_world.Map, _world.ActorZ, nx, ny, nsx, nsy,
+            _world.TerrainEvaluator) ?? "unknown";
+        GD.Print(
+            $"[GameRoot] WASD blocked at actor=({_world.ActorX},{_world.ActorY}).sub({_world.ActorSubX},{_world.ActorSubY})" +
+            $" → ({nx},{ny}).sub({nsx},{nsy}) z={_world.ActorZ}: {reason}");
     }
 
     /// <summary>Core axes: +Y north. Opposing keys cancel; each axis clamped to -1..1 for <see cref="WorldState.TryStepSubTile"/>.</summary>
@@ -1106,7 +1009,6 @@ public partial class GameRoot : Node2D
         }
 
         SnapPlayerToActorCell();
-        ConfigureFogOverlayForActiveFloor();
         RefreshShellHud();
         MarkShellViewDirty();
         QueueRedraw();
@@ -1383,10 +1285,46 @@ public partial class GameRoot : Node2D
         }
 
         var mapLine =
-            $"Map {_world.Map.Width}×{_world.Map.Height} — WASD to move, wheel to zoom";
+            $"World map {_world.Map.Width}×{_world.Map.Height} cells — WASD to move";
         _shellHud.SetBootText(
-            $"{mapLine}\nWASD — sub-tile step (hold to repeat)   |   Wheel / = - / keypad +/- — zoom   |   E / Enter — link   |   [ ] / PgUp/PgDn — floor   |   F5 — debug   |   F6 — fog mode   |   Ctrl+Z — undo config   |   ESC — pause / Quit");
+            $"{mapLine}\nWASD — hold to move (smooth repeat; release to stop)   |   Wheel / = - / keypad +/- — zoom   |   E / Enter — link   |   [ ] / PgUp/PgDn — floor   |   F5 — debug   |   Ctrl+Z — undo config   |   ESC — pause / Quit");
         _shellHud.SetRevisionReadout($"REV {ShellFeatureRevision}");
+        _shellHud.SyncMapPresetUi(ShellEffectiveLandPercent, ShellEffectiveSeed,
+            ShellEffectiveOriginPatchChebyshevRadius, ShellCanApplyLandPercentPreset);
+    }
+
+    /// <summary>One-shot diagnostics after cold bootstrap to explain blank vs cull vs terrain tint (see cold-start plan).</summary>
+    private void LogColdStartViewDiagnostics(bool coldBoot)
+    {
+        if (!coldBoot)
+        {
+            return;
+        }
+
+        if (_camera2D is not null && _shellPlayer is not null)
+        {
+            _camera2D.Position = _shellPlayer.Position;
+            _camera2D.Zoom = _zoom;
+        }
+
+        var floor = ActiveFloorSlice;
+        var origin = GetGridOrigin(floor.Width, floor.Height);
+        var visible = GetExpandedVisibleCullRect();
+        GetVisibleGlobalCellBounds(floor, visible, out var minGx, out var maxGx, out var minGy, out var maxGy);
+
+        var wx = SubTileTraversal.SubCellWorldX(_world.ActorX, _world.ActorSubX);
+        var wy = SubTileTraversal.SubCellWorldY(_world.ActorY, _world.ActorSubY);
+        var tile = floor.Get(_world.ActorX, _world.ActorY);
+        var rgb = TerrainVisualColor.AtWorld(wx, wy, tile, _world.TerrainEvaluator, _world.Map.TerrainConfig);
+        var cam = _camera2D is null
+            ? "cam=(none)"
+            : $"cam=({FormatWorldCoord(_camera2D.Position.X)},{FormatWorldCoord(_camera2D.Position.Y)})";
+
+        GD.Print(
+            $"[GameRoot] ColdStartView: visible=({FormatWorldCoord(visible.Position.X)},{FormatWorldCoord(visible.Position.Y)}) size=({FormatWorldCoord(visible.Size.X)}×{FormatWorldCoord(visible.Size.Y)}) " +
+            $"cells=({minGx},{minGy})..({maxGx},{maxGy}) actorCell=({_world.ActorX},{_world.ActorY}) sub=({_world.ActorSubX},{_world.ActorSubY}) " +
+            $"gridOrigin=({FormatWorldCoord(origin.X)},{FormatWorldCoord(origin.Y)}) {cam} zoom={FormatWorldCoord(_zoom.X)} " +
+            $"terrainRgb=({FormatWorldCoord(rgb.R)},{FormatWorldCoord(rgb.G)},{FormatWorldCoord(rgb.B)})");
     }
 
     private void LogShellFeatureRevisionToFile()
@@ -1422,17 +1360,7 @@ public partial class GameRoot : Node2D
     private RuntimeConfigSnapshot CaptureRuntimeConfigSnapshot() => new(
         _activeRenderScale,
         _activeMaxFps,
-        _activeVsyncMode,
-        _fogRenderMode == FogRenderMode.GpuMaskOverlay,
-        _fogVisualColor.A,
-        _fogEdgeWidthCells,
-        _fogEdgeSoftness,
-        _fogEdgeSamples,
-        _fogMaskPixelsPerCell,
-        _fogVisualUpdateHz,
-        _fogRevealLerpSpeed,
-        _fogBrushHardCoreRatio,
-        _fogBrushFeatherExponent);
+        _activeVsyncMode);
 
     private void PushRuntimeConfigUndoSnapshot()
     {
@@ -1440,17 +1368,7 @@ public partial class GameRoot : Node2D
         ShellAppConfig.PushUndoSnapshot(new ShellAppConfig.RuntimeShellSettings(
             s.RenderScale,
             s.MaxFps,
-            s.VsyncMode,
-            s.FogGpuEnabled,
-            s.FogEdgeOpacity,
-            s.FogEdgeWidthCells,
-            s.FogEdgeSoftness,
-            s.FogEdgeSamples,
-            s.FogMaskPixelsPerCell,
-            s.FogVisualUpdateHz,
-            s.FogRevealLerpSpeed,
-            s.FogBrushHardCoreRatio,
-            s.FogBrushFeatherExponent));
+            s.VsyncMode));
     }
 
     private bool TryUndoRuntimeConfigChange()
@@ -1461,16 +1379,6 @@ public partial class GameRoot : Node2D
         }
 
         ApplyPerfPreset(s.RenderScale, s.MaxFps, s.VsyncMode, "undo", trackUndo: false, persist: false);
-        ApplyFogPreset(s.FogGpuEnabled, s.FogEdgeOpacity, s.FogEdgeWidthCells, s.FogEdgeSoftness, s.FogEdgeSamples,
-            "undo", trackUndo: false, persist: false);
-        _fogMaskPixelsPerCell = Mathf.Clamp(s.FogMaskPixelsPerCell, 1, 32);
-        _fogVisualUpdateHz = Mathf.Clamp(s.FogVisualUpdateHz, 10, 240);
-        _visualFogStampIntervalS = 1.0 / _fogVisualUpdateHz;
-        _fogRevealLerpSpeed = Mathf.Clamp(s.FogRevealLerpSpeed, 0.5f, 40.0f);
-        _fogBrushHardCoreRatio = Mathf.Clamp(s.FogBrushHardCoreRatio, 0.2f, 0.95f);
-        _fogBrushFeatherExponent = Mathf.Clamp(s.FogBrushFeatherExponent, 0.5f, 4.0f);
-        _fogOverlayRenderer?.ConfigureRevealSmoothing(_fogRevealLerpSpeed, _fogBrushHardCoreRatio, _fogBrushFeatherExponent,
-            _fogVisualUpdateHz);
         PersistRuntimeShellSettings();
         return true;
     }
@@ -1480,17 +1388,7 @@ public partial class GameRoot : Node2D
         var err = ShellAppConfig.SaveRuntimeShellSettings(
             _activeRenderScale,
             _activeMaxFps,
-            _activeVsyncMode,
-            _fogRenderMode == FogRenderMode.GpuMaskOverlay,
-            _fogVisualColor.A,
-            _fogEdgeWidthCells,
-            _fogEdgeSoftness,
-            _fogEdgeSamples,
-            _fogMaskPixelsPerCell,
-            _fogVisualUpdateHz,
-            _fogRevealLerpSpeed,
-            _fogBrushHardCoreRatio,
-            _fogBrushFeatherExponent);
+            _activeVsyncMode);
         if (err != Error.Ok)
         {
             GD.PushWarning($"[GameRoot] Failed to persist runtime shell settings: {err}");
@@ -1524,12 +1422,6 @@ public partial class GameRoot : Node2D
         };
     }
 
-    private string FogModeLabel() => _fogRenderMode switch
-    {
-        FogRenderMode.LegacyTileCpu => "legacy tile cpu",
-        _ => "gpu mask overlay",
-    };
-
     /// <summary>
     /// Pixel origin (top-left of the north-west tile rect) chosen so the whole <c>width × height</c> board
     /// is centered on <c>(0, 0)</c> in <c>GridMap</c> space; local row <c>ly = y - MinY</c> for north-up flip (see architecture.md).
@@ -1540,16 +1432,29 @@ public partial class GameRoot : Node2D
         return new Vector2(-width * cs * 0.5f, -height * cs * 0.5f);
     }
 
-    private void DrawGridLines(Vector2 gridOriginTopLeft, int width, int height, Rect2 visible)
+    /// <summary>Negative corner so global tile (0,0) lies near the board center (even dimensions).</summary>
+    private static (int MinX, int MinY) ProceduralMapMinCorner(int widthCells, int heightCells) =>
+        (-(widthCells / 2), -(heightCells / 2));
+
+    private float GridLineStrokeLocal(float baseLocalWidth)
+    {
+        var invZ = 1f / Mathf.Max(1e-4f, _zoom.X);
+        invZ = Mathf.Clamp(invZ, 0.45f, 10f);
+        return Mathf.Max(1f, baseLocalWidth * invZ);
+    }
+
+    private void DrawGridLines(FloorSlice floor, Vector2 gridOriginTopLeft, Rect2 visible)
     {
         var cs = _cellSizePx;
+        var width = floor.Width;
+        var height = floor.Height;
         var boardW = width * cs;
         var boardH = height * cs;
         var x0 = gridOriginTopLeft.X;
         var y0 = gridOriginTopLeft.Y;
         var x1 = x0 + boardW;
         var y1 = y0 + boardH;
-        const float chunkBorderWidth = 0.85f;
+        const float chunkBorderWidth = 1.55f;
         const float regularLineWidth = chunkBorderWidth * 0.5f;
         var chunkW = Math.Max(1, _shell.ChunkWidthCells);
         var chunkH = Math.Max(1, _shell.ChunkHeightCells);
@@ -1558,19 +1463,137 @@ public partial class GameRoot : Node2D
         var maxIx = Mathf.Clamp(Mathf.CeilToInt((visible.Position.X + visible.Size.X - x0) / cs), 0, width);
         for (var i = minIx; i <= maxIx; i++)
         {
-            var x = x0 + i * cs;
+            var x = CellRectGlobal(floor.MinX + i, floor.MinY, floor, gridOriginTopLeft).Position.X;
             var widthPx = (i % chunkW == 0) ? chunkBorderWidth : regularLineWidth;
-            DrawLine(new Vector2(x, y0), new Vector2(x, y1), GridLineColor, widthPx, true);
+            var from = new Vector2(x, y0);
+            var to = new Vector2(x, y1);
+            SnapVerticalLineToCanvasPixels(ref from, ref to);
+            DrawLine(from, to, GridLineColor, GridLineStrokeLocal(widthPx), false);
         }
 
         var minJy = Mathf.Clamp(Mathf.FloorToInt((visible.Position.Y - y0) / cs), 0, height);
         var maxJy = Mathf.Clamp(Mathf.CeilToInt((visible.Position.Y + visible.Size.Y - y0) / cs), 0, height);
         for (var j = minJy; j <= maxJy; j++)
         {
-            var y = y0 + j * cs;
+            float y;
+            if (j < height)
+            {
+                var gy = floor.MinY + height - 1 - j;
+                y = CellRectGlobal(floor.MinX, gy, floor, gridOriginTopLeft).Position.Y;
+            }
+            else
+            {
+                var south = CellRectGlobal(floor.MinX, floor.MinY, floor, gridOriginTopLeft);
+                y = south.Position.Y + south.Size.Y;
+            }
+
             var widthPx = (j % chunkH == 0) ? chunkBorderWidth : regularLineWidth;
-            DrawLine(new Vector2(x0, y), new Vector2(x1, y), GridLineColor, widthPx, true);
+            var from = new Vector2(x0, y);
+            var to = new Vector2(x1, y);
+            SnapHorizontalLineToCanvasPixels(ref from, ref to);
+            DrawLine(from, to, GridLineColor, GridLineStrokeLocal(widthPx), false);
         }
+    }
+
+    /// <summary>
+    /// <see cref="CanvasItem.GetCanvasTransform"/> maps this node's local coordinates → canvas (viewport) pixels;
+    /// round in canvas space so grid lines land on integer screen pixels at fractional zoom.
+    /// </summary>
+    private Vector2 LocalPointToCanvas(Vector2 localPt) =>
+        GetCanvasTransform() * localPt;
+
+    private Vector2 CanvasPointToLocal(Vector2 canvasPt) =>
+        GetCanvasTransform().AffineInverse() * canvasPt;
+
+    /// <summary>One-line hover readout: <c>[terrain] x, y</c> in grid world space (F2); false when off the board.</summary>
+    public bool TryGetHoverTileReadout(out string line)
+    {
+        line = "—";
+        if (_world is null)
+        {
+            return false;
+        }
+
+        var viewportMouse = GetViewport().GetMousePosition();
+        var localPt = GetGlobalTransformWithCanvas().AffineInverse() * viewportMouse;
+        var floor = ShellGetActiveFloorSlice();
+        var origin = GetGridOrigin(floor.Width, floor.Height);
+        var boardW = floor.Width * _cellSizePx;
+        var boardH = floor.Height * _cellSizePx;
+        if (localPt.X < origin.X || localPt.Y < origin.Y || localPt.X >= origin.X + boardW ||
+            localPt.Y >= origin.Y + boardH)
+        {
+            return false;
+        }
+
+        if (!TryWorldToSubCell(localPt, floor, out var gx, out var gy, out var sx, out var sy))
+        {
+            return false;
+        }
+
+        var tile = floor.Get(gx, gy);
+        var wxf = gx + (sx + 0.5f) / SubTileGrid.Resolution;
+        var wyf = gy + (sy + 0.5f) / SubTileGrid.Resolution;
+        var terrain = TerrainVisualColor.DescribeCategoryAtTileCenter(
+            wxf,
+            wyf,
+            tile,
+            _world.TerrainEvaluator,
+            _world.Map.TerrainConfig);
+        line = $"[{terrain}] {FormatWorldCoord(localPt.X)}, {FormatWorldCoord(localPt.Y)}";
+        return true;
+    }
+
+    /// <summary>One-line player foot readout: <c>[terrain] x, y</c> in grid world space (F2).</summary>
+    public bool TryGetPlayerFootReadout(out string line)
+    {
+        line = "—";
+        if (_world is null || _shellPlayer is null)
+        {
+            return false;
+        }
+
+        var floor = ShellGetActiveFloorSlice();
+        var pos = _shellPlayer.Position;
+        if (!TryWorldToSubCell(pos, floor, out var gx, out var gy, out var sx, out var sy))
+        {
+            line = "[—] —";
+            return false;
+        }
+
+        var tile = floor.Get(gx, gy);
+        var wxf = gx + (sx + 0.5f) / SubTileGrid.Resolution;
+        var wyf = gy + (sy + 0.5f) / SubTileGrid.Resolution;
+        var terrain = TerrainVisualColor.DescribeCategoryAtTileCenter(
+            wxf,
+            wyf,
+            tile,
+            _world.TerrainEvaluator,
+            _world.Map.TerrainConfig);
+        line = $"[{terrain}] {FormatWorldCoord(pos.X)}, {FormatWorldCoord(pos.Y)}";
+        return true;
+    }
+
+    private void SnapVerticalLineToCanvasPixels(ref Vector2 from, ref Vector2 to)
+    {
+        var c0 = LocalPointToCanvas(from);
+        var c1 = LocalPointToCanvas(to);
+        var rx = Mathf.Round((c0.X + c1.X) * 0.5f);
+        c0.X = rx;
+        c1.X = rx;
+        from = CanvasPointToLocal(c0);
+        to = CanvasPointToLocal(c1);
+    }
+
+    private void SnapHorizontalLineToCanvasPixels(ref Vector2 from, ref Vector2 to)
+    {
+        var c0 = LocalPointToCanvas(from);
+        var c1 = LocalPointToCanvas(to);
+        var ry = Mathf.Round((c0.Y + c1.Y) * 0.5f);
+        c0.Y = ry;
+        c1.Y = ry;
+        from = CanvasPointToLocal(c0);
+        to = CanvasPointToLocal(c1);
     }
 
     private Rect2 GetVisibleWorldRect()
@@ -1697,124 +1720,6 @@ public partial class GameRoot : Node2D
         return true;
     }
 
-    private void ApplyFogAroundActor()
-    {
-        var isInitialReveal = !_fogFirstRevealApplied;
-        var slice = ActiveFloorSlice;
-        var cx = SubTileTraversal.SubCellWorldX(_world.ActorX, _world.ActorSubX);
-        var cy = SubTileTraversal.SubCellWorldY(_world.ActorY, _world.ActorSubY);
-        var radius = ComputeFogRevealRadiusCells(cx, cy, slice, isInitialReveal);
-        _world.Fog.ApplyCircleSubTerrainAware(0, slice.Z, cx, cy, radius, _world.Map, _world.TerrainEvaluator,
-            slice.MinX, slice.MinY, slice.Width, slice.Height);
-        _fogOverlayRenderer?.EnsureFloorMask(slice.Z, slice.MinX, slice.MinY, slice.Width, slice.Height);
-        _fogOverlayRenderer?.SyncSlidingMaskAnchor(slice.Z, _world.ActorX, _world.ActorY, _world, 0);
-        _fogOverlayRenderer?.StampRevealCircleTerrainAwareAtGlobal(slice.Z, cx, cy, radius, _world.Map,
-            _world.TerrainEvaluator);
-        if (isInitialReveal)
-        {
-            // Spawn should start with visible reveal immediately, not after interpolation catches up.
-            _fogOverlayRenderer?.SnapDisplayToTarget(slice.Z);
-            _fogFirstRevealApplied = true;
-        }
-    }
-
-    private void PrimeInitialFogVisual()
-    {
-        if (_fogOverlayRenderer is null || _fogRenderMode != FogRenderMode.GpuMaskOverlay)
-        {
-            return;
-        }
-
-        var slice = ActiveFloorSlice;
-        var cx = SubTileTraversal.SubCellWorldX(_world.ActorX, _world.ActorSubX);
-        var cy = SubTileTraversal.SubCellWorldY(_world.ActorY, _world.ActorSubY);
-        var radius = ComputeFogRevealRadiusCells(cx, cy, slice, applyStartupFirstRevealBoost: !_fogFirstRevealApplied);
-        _fogOverlayRenderer.EnsureFloorMask(slice.Z, slice.MinX, slice.MinY, slice.Width, slice.Height);
-        _fogOverlayRenderer.SyncSlidingMaskAnchor(slice.Z, _world.ActorX, _world.ActorY, _world, 0);
-        _fogOverlayRenderer.SetActiveFloor(slice.Z);
-        _fogOverlayRenderer.StampRevealCircleTerrainAwareAtGlobal(slice.Z, cx, cy, radius, _world.Map,
-            _world.TerrainEvaluator);
-        _fogOverlayRenderer.SnapDisplayToTarget(slice.Z);
-        _fogOverlayRenderer.QueueRedraw();
-    }
-
-    private void StampVisualFogFromPlayer(double delta)
-    {
-        if (_shellPlayer is null || _fogOverlayRenderer is null || _fogRenderMode != FogRenderMode.GpuMaskOverlay)
-        {
-            return;
-        }
-
-        _visualFogStampAccumS += delta;
-        if (_visualFogStampAccumS < _visualFogStampIntervalS)
-        {
-            return;
-        }
-
-        _visualFogStampAccumS = 0.0;
-        var floor = ActiveFloorSlice;
-        var radius = (float)Math.Max(_shell.FogRevealHalfWidthCells, _shell.FogRevealHalfHeightCells);
-        var cx = SubTileTraversal.SubCellWorldX(_world.ActorX, _world.ActorSubX);
-        var cy = SubTileTraversal.SubCellWorldY(_world.ActorY, _world.ActorSubY);
-        _fogOverlayRenderer.EnsureFloorMask(floor.Z, floor.MinX, floor.MinY, floor.Width, floor.Height);
-        _fogOverlayRenderer.SyncSlidingMaskAnchor(floor.Z, _world.ActorX, _world.ActorY, _world, 0);
-        _fogOverlayRenderer.StampRevealCircleTerrainAwareAtGlobal(floor.Z, cx, cy, radius, _world.Map,
-            _world.TerrainEvaluator);
-    }
-
-    private void DrawFogOverlay(Vector2 gridOriginTopLeft, FloorSlice floor, Rect2 visible, int minGx, int maxGx,
-        int minGy, int maxGy)
-    {
-        if (_fogRenderMode == FogRenderMode.GpuMaskOverlay)
-        {
-            return;
-        }
-
-        for (var gy = minGy; gy <= maxGy; gy++)
-        {
-            for (var gx = minGx; gx <= maxGx; gx++)
-            {
-                if (_world.Fog.IsRevealed(0, floor.Z, gx, gy, floor.MinX, floor.MinY, floor.Width, floor.Height))
-                {
-                    continue;
-                }
-
-                var rect = CellRectGlobal(gx, gy, floor, gridOriginTopLeft);
-                if (!rect.Intersects(visible))
-                {
-                    continue;
-                }
-
-                DrawRect(rect, _fogVisualColor, true);
-            }
-        }
-    }
-
-    private static float ClampFogRevealRadiusToFloor(float radiusCells, float cx, float cy, FloorSlice slice)
-    {
-        var maxEdge = Mathf.Min(
-            Mathf.Min(cx - slice.MinX, slice.MinX + slice.Width - cx),
-            Mathf.Min(cy - slice.MinY, slice.MinY + slice.Height - cy));
-        return Mathf.Clamp(radiusCells, 0.5f, Mathf.Max(0.5f, maxEdge - 0.01f));
-    }
-
-    private float ComputeFogRevealRadiusCells(float cx, float cy, FloorSlice slice, bool applyStartupFirstRevealBoost)
-    {
-        var mult = applyStartupFirstRevealBoost ? InitialFogRevealHalfExtentMultiplier : 1;
-        var halfW = Math.Max(0, _shell.FogRevealHalfWidthCells) * mult;
-        var halfH = Math.Max(0, _shell.FogRevealHalfHeightCells) * mult;
-        var baseRadius = (float)Math.Max(halfW, halfH);
-        if (!applyStartupFirstRevealBoost)
-        {
-            return ClampFogRevealRadiusToFloor(baseRadius, cx, cy, slice);
-        }
-
-        var r0 = StartupRevealBaselineChunkMultiplier *
-                 Math.Max(_shell.ChunkWidthCells, _shell.ChunkHeightCells);
-        var boosted = Mathf.Max(baseRadius, r0 * _shell.StartupRevealScale);
-        return ClampFogRevealRadiusToFloor(boosted, cx, cy, slice);
-    }
-
     private void MaybeNudgeStartupZoomForLargeFloor()
     {
         if (_camera2D is null)
@@ -1838,40 +1743,44 @@ public partial class GameRoot : Node2D
         _camera2D.Zoom = _zoom;
     }
 
-    private void ConfigureFogOverlayForActiveFloor()
-    {
-        if (_fogOverlayRenderer is null)
-        {
-            return;
-        }
-
-        var floor = ActiveFloorSlice;
-        var origin = GetGridOrigin(floor.Width, floor.Height);
-        _fogOverlayRenderer.ConfigureBoard(origin, floor.Width, floor.Height, _cellSizePx, _fogMaskPixelsPerCell);
-        _fogOverlayRenderer.SetSlidingFogMode(_shell.FogSlidingMaskEnabled, _shell.LargeMapMode, _shell.FogMaskWindowCells,
-            _shell.FogMaskRecenterMarginCells);
-        _fogOverlayRenderer.EnsureFloorMask(floor.Z, floor.MinX, floor.MinY, floor.Width, floor.Height);
-        _fogOverlayRenderer.SyncSlidingMaskAnchor(floor.Z, _world.ActorX, _world.ActorY, _world, 0);
-        _fogOverlayRenderer.SetActiveFloor(floor.Z);
-        _fogOverlayRenderer.ConfigureStyle(_fogVisualColor, _fogEdgeWidthCells, _fogEdgeSoftness, _fogEdgeSamples,
-            _fogRenderMode == FogRenderMode.GpuMaskOverlay);
-    }
-
-    private bool IsRevealedCell(FloorSlice floor, int x, int y)
-    {
-        if (!floor.Contains(x, y))
-        {
-            return false;
-        }
-
-        return _world.Fog.IsRevealed(0, floor.Z, x, y, floor.MinX, floor.MinY, floor.Width, floor.Height);
-    }
-
-    /// <summary>Prefer map center, but shells may place blocked tiles there (fallback map, debug RNG).</summary>
+    /// <summary>
+    /// Prefer map center, but shells may place blocked tiles there (fallback map, debug RNG). Validates against
+    /// <see cref="SubTileTraversal"/> so the spawn sub-cell + its 4 cardinal sub-neighbors are walkable and the
+    /// surrounding 5x5 sub-tile window is mostly land; otherwise WASD would reject every step on a knife-edge
+    /// land cell whose noise dips below the water threshold for nearby sub-cells.
+    /// </summary>
     private bool TryFindWalkableSpawnNearCenter(FloorSlice floor, int centerGx, int centerGy, out int sx,
         out int sy)
     {
+        var z = _world.ActorZ;
+        var eval = _world.TerrainEvaluator;
+        var terrain = _world.Map.TerrainConfig;
+
+        // Prefer the largest tile-level landmass (4-connected), then Chebyshev rings from map center — matches
+        // OriginWalkabilityPatch/stairs at center instead of stranding on a small island at geometric middle.
+        if (LandmassSpawnSupport.TryFindSpawnChebyshevFromCenterOnLargestLandmass(
+                floor, terrain, centerGx, centerGy,
+                (gx, gy) => IsSubTileSpawnViable(_world.Map, z, gx, gy, eval),
+                out sx, out sy))
+        {
+            return true;
+        }
+
+        if (LandmassSpawnSupport.TryFindSpawnChebyshevFromCenterOnLargestLandmass(
+                floor, terrain, centerGx, centerGy,
+                acceptSpawnCell: null,
+                out sx, out sy))
+        {
+            GD.Print(
+                $"[GameRoot] No sub-tile-viable spawn on largest landmass near ({centerGx},{centerGy}); " +
+                $"using tile-walkable ({sx},{sy}) on that landmass. First WASD steps may be blocked by sub-tile water.");
+            return true;
+        }
+
         var maxR = Math.Min(512, Math.Max(floor.Width, floor.Height));
+        var fallbackGx = int.MinValue;
+        var fallbackGy = int.MinValue;
+
         for (var r = 0; r < maxR; r++)
         {
             for (var dy = -r; dy <= r; dy++)
@@ -1890,7 +1799,18 @@ public partial class GameRoot : Node2D
                         continue;
                     }
 
-                    if (TileTraversal.IsWalkable(floor.Get(gx, gy), _world.Map.TerrainConfig))
+                    if (!TileTraversal.IsWalkable(floor.Get(gx, gy), terrain))
+                    {
+                        continue;
+                    }
+
+                    if (fallbackGx == int.MinValue)
+                    {
+                        fallbackGx = gx;
+                        fallbackGy = gy;
+                    }
+
+                    if (IsSubTileSpawnViable(_world.Map, z, gx, gy, eval))
                     {
                         sx = gx;
                         sy = gy;
@@ -1900,8 +1820,66 @@ public partial class GameRoot : Node2D
             }
         }
 
+        if (fallbackGx != int.MinValue)
+        {
+            GD.Print(
+                $"[GameRoot] No sub-tile-viable spawn near ({centerGx},{centerGy}); falling back to cell-walkable ({fallbackGx},{fallbackGy}). " +
+                "First WASD steps may be blocked by sub-tile water around the spawn cell.");
+            sx = fallbackGx;
+            sy = fallbackGy;
+            return true;
+        }
+
         sx = sy = 0;
         return false;
+    }
+
+    /// <summary>
+    /// Spawn cell qualifies when the spawn sub-cell, all 4 cardinal sub-neighbors, and at least 16 of 25 sub-cells
+    /// in a 5x5 window centered on the tile center pass <see cref="SubTileTraversal.IsWalkable"/>.
+    /// </summary>
+    private static bool IsSubTileSpawnViable(WorldMap map, int z, int gx, int gy, ITerrainEvaluator eval)
+    {
+        var c = SubTileGrid.CenterSub;
+        if (!SubTileTraversal.IsWalkable(map, z, gx, gy, c, c, eval))
+        {
+            return false;
+        }
+
+        if (!IsSubCellWalkableAcrossTiles(map, z, gx, gy, c + 1, c, eval) ||
+            !IsSubCellWalkableAcrossTiles(map, z, gx, gy, c - 1, c, eval) ||
+            !IsSubCellWalkableAcrossTiles(map, z, gx, gy, c, c + 1, eval) ||
+            !IsSubCellWalkableAcrossTiles(map, z, gx, gy, c, c - 1, eval))
+        {
+            return false;
+        }
+
+        var walkableCount = 0;
+        for (var dsy = -2; dsy <= 2; dsy++)
+        {
+            for (var dsx = -2; dsx <= 2; dsx++)
+            {
+                if (IsSubCellWalkableAcrossTiles(map, z, gx, gy, c + dsx, c + dsy, eval))
+                {
+                    walkableCount++;
+                }
+            }
+        }
+
+        return walkableCount >= 16;
+    }
+
+    /// <summary>
+    /// Sub-cell walkability that handles the rare case where <c>(subDx, subDy)</c> lands outside <c>0..Resolution-1</c>
+    /// (e.g. when probing the 5x5 window beyond the local tile); resolves to the neighboring tile via
+    /// <see cref="SubTileGrid.AddSubDelta"/>.
+    /// </summary>
+    private static bool IsSubCellWalkableAcrossTiles(WorldMap map, int z, int gx, int gy, int subX, int subY,
+        ITerrainEvaluator eval)
+    {
+        SubTileGrid.AddSubDelta(gx, 0, subX, out var nx, out var nsx);
+        SubTileGrid.AddSubDelta(gy, 0, subY, out var ny, out var nsy);
+        return SubTileTraversal.IsWalkable(map, z, nx, ny, nsx, nsy, eval);
     }
 
     private void SnapPlayerToActorCell()
@@ -1935,10 +1913,6 @@ public partial class GameRoot : Node2D
         _world.SetActorCellFromShell(gx, gy, _world.ActorZ, sx, sy);
         var c = new Vector2I(gx, gy);
         var cellChanged = c != _lastSyncedCell || _world.ActorZ != _lastSyncedActorZ;
-        if (cellChanged)
-        {
-            ApplyFogAroundActor();
-        }
 
         if (forceHud || cellChanged)
         {

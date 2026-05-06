@@ -1,9 +1,11 @@
 {
   "folders": [
     {
+      "name": "GodotProject",
       "path": "src/Godot"
     },
     {
+      "name": "SpecialPG",
       "path": "."
     }
   ],

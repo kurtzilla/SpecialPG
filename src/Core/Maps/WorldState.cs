@@ -24,8 +24,6 @@ public sealed class WorldState
     /// <summary>Registered entities (not stored in <see cref="WorldMap"/> tiles). Spatial index uses map chunk dimensions.</summary>
     public EntityStore Entities { get; }
 
-    public FogOfWarState Fog { get; } = new();
-
     public int ActorX { get; private set; }
 
     public int ActorY { get; private set; }

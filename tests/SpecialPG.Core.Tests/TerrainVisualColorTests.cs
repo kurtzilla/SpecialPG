@@ -37,4 +37,16 @@ public class TerrainVisualColorTests
         var rgb = TerrainVisualColor.AtWorld(100f, 100f, tile, eval, cfg);
         Assert.True(rgb.B > rgb.R && rgb.B > rgb.G);
     }
+
+    [Fact]
+    public void Synthetic_water_with_blocked_flag_uses_water_tint_not_blocked_green()
+    {
+        var cfg = TerrainNoiseConfig.Default(3) with { WaterElevationThreshold = 1.01f };
+        var eval = new TerrainEvaluator(cfg);
+        var tile = TileCell.SyntheticWater();
+
+        var rgb = TerrainVisualColor.AtWorld(0f, 0f, tile, eval, cfg);
+        Assert.True(rgb.B > rgb.R && rgb.B > rgb.G,
+            "Water tiles use TileFlags.Blocked for movement; visuals must still read as water (blue), not Blocked.");
+    }
 }

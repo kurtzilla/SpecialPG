@@ -9,19 +9,11 @@ This document is the **source of truth** for coordinate conventions, floor slici
 - **`src/Core`**: Pure C# using the .NET Base Class Library only. No Godot types or assemblies.
 - **`src/Godot`**: The **Shell**—the only place Godot APIs and generated game code live. The Shell reads Core data, renders, and forwards input; simulation rules stay in Core.
 
-**World state:** Actor pose and grid intents (use vertical link, debug floor cycle) live in Core [`WorldState`](../src/Core/Maps/WorldState.cs). The Shell may drive **continuous** world position for the avatar; Core’s `(ActorX, ActorY, ActorZ)` is updated as the **sampled foot cell** via `SetActorCellFromShell` so tiles, links, and integrity stay grid-aligned. Session fog-of-war revealed cells live in [`FogOfWarState`](../src/Core/Maps/FogOfWarState.cs) on the same `WorldState` instance. **Entities** (props, NPCs, machines—anything not authored as map tiles) live in [`EntityStore`](../src/Core/Maps/EntityStore.cs) on that `WorldState`, keyed by [`EntityId`](../src/Core/Maps/EntityId.cs) with chunk buckets `(cx, cy, z)` aligned to the active [`WorldMap`](../src/Core/Maps/WorldMap.cs); serialize separately from terrain via [`EntityStoreJson`](../src/Core/Maps/EntityStoreJson.cs).
+**World state:** Actor pose and grid intents (use vertical link, debug floor cycle) live in Core [`WorldState`](../src/Core/Maps/WorldState.cs). The Shell may drive **continuous** world position for the avatar; Core’s `(ActorX, ActorY, ActorZ)` is updated as the **sampled foot cell** via `SetActorCellFromShell` so tiles, links, and integrity stay grid-aligned. **Entities** (props, NPCs, machines—anything not authored as map tiles) live in [`EntityStore`](../src/Core/Maps/EntityStore.cs) on that `WorldState`, keyed by [`EntityId`](../src/Core/Maps/EntityId.cs) with chunk buckets `(cx, cy, z)` aligned to the active [`WorldMap`](../src/Core/Maps/WorldMap.cs); serialize separately from terrain via [`EntityStoreJson`](../src/Core/Maps/EntityStoreJson.cs).
 
-**Shell tuning:** [`config.ini`](../src/Godot/config.ini) (loaded by [`ShellAppConfig`](../src/Godot/ShellAppConfig.cs)) supplies values such as `cell_size_px`, default map dimensions (used for bounded bootstrap / procedural defaults), move speed, zoom limits, and fog reveal half-extents (`fog_reveal_half_width_cells` / `fog_reveal_half_height_cells`) without recompiling. Window mode stays in `project.godot`. The checked-in [`sample_twofloor.json`](../src/Godot/maps/sample_twofloor.json) uses its own `width`/`height` from the file (kept smaller than those defaults so the asset stays tractable in git); bump dimensions in `scripts/gen_sample_twofloor.py` when you need a full-size sample on disk.
+**Shell tuning:** [`config.ini`](../src/Godot/config.ini) (loaded by [`ShellAppConfig`](../src/Godot/ShellAppConfig.cs)) supplies values such as `cell_size_px`, default map dimensions (used for bounded bootstrap / procedural defaults), move speed, and zoom limits without recompiling. Window mode stays in `project.godot`. The checked-in [`sample_twofloor.json`](../src/Godot/maps/sample_twofloor.json) uses its own `width`/`height` from the file (kept smaller than those defaults so the asset stays tractable in git); bump dimensions in `scripts/gen_sample_twofloor.py` when you need a full-size sample on disk.
 
-**Fog reveal + edge tuning (GPU mask mode):** Core reveal writes stay authoritative and cell-based in [`FogOfWarState`](../src/Core/Maps/FogOfWarState.cs). Visual fog is decoupled in the shell: [`FogOverlayRenderer`](../src/Godot/FogOverlayRenderer.cs) keeps a floor-scoped world-space mask texture, stamps reveal circles on actor cell changes, and renders one board-sized quad with [`FogMaskOverlay.gdshader`](../src/Godot/FogMaskOverlay.gdshader). Tune via:
-- `fog_gpu_enabled`: default GPU mask path (`true`) vs legacy CPU tile overlay (`false`).
-- `fog_mask_pixels_per_cell`: fog mask texel density in world space (higher = smoother edges, higher texture cost).
-- `fog_edge_opacity`: fog alpha in shader output (0..1).
-- `fog_edge_width_cells`: shader blur/sample radius in tile units (default `1.0`).
-- `fog_edge_softness`: shader falloff exponent; higher values darken transition faster.
-- `fog_edge_samples`: shader blur taps (quality/perf tradeoff).
-
-Runtime A/B toggle: press **F6** in shell to switch between legacy CPU tile fog and GPU mask overlay while profiling.
+**Visibility:** The shell renders the entire active floor unconditionally — there is no fog-of-war, no reveal mask, and no shader overlay. Terrain tints come from [`TerrainVisualColor`](../src/Godot/TerrainVisualColor.cs) sampled at world coordinates per cell.
 
 **Shell HUD / pause:** [`ShellHudLayer`](../src/Godot/ShellHudLayer.cs) lives on `Main/ShellUi/ShellHudRoot` (a `CanvasLayer` sibling of `GridMap`, not under the pannable `Node2D`). `ShellUi` must keep **`follow_viewport_enabled = false`** so HUD stays **window-anchored**; if it is `true`, Godot ties the layer to the active `Camera2D` scroll and the UI drifts with the map. **ESC** is handled in [`GameRoot._UnhandledInput`](../src/Godot/GameRoot.cs) and toggles the centered pause menu on that layer (**Quit** at the top, **Resume** below); only **Quit** exits the app. [`GameRoot`](../src/Godot/GameRoot.cs) pushes boot line, feature RichText, and world XY labels through `ShellHudLayer`. Debug builds may still show the external-debug autoload overlay first; **ESC** there skips the wait (see addon README) before the pause menu behaves normally.
 
@@ -126,9 +118,9 @@ Pass a session/world **seed** into procedural builders; keep generation **pure**
 
 [`MapIntegrity`](../src/Core/Maps/MapIntegrity.cs) today assumes a **complete** map graph for validation. **Partial/streamed** generation may temporarily violate rules until a region is **committed**; split **authoring-time** checks from **runtime** checks (validate after a chunk batch, or run a **repair pass** for vertical connectivity). Any floor with defined tiles must eventually satisfy the [Map Integrity rule](#map-integrity-rule); generators should place **stairs/links** in the same pass as tiles when feasible.
 
-### Fog and memory at scale
+### Visibility and memory at scale
 
-[`FogOfWarState`](../src/Core/Maps/FogOfWarState.cs) reveal sets grow with explored area. Large Factorio-scale worlds may need caps, eviction, or hierarchical fog—document limits when you rely on huge bounds.
+The shell renders the full active floor every frame (clipped to the camera cull rect). There is no fog-of-war reveal set, so visibility never accumulates per-session memory; if a future feature reintroduces selective visibility, document storage and eviction here.
 
 ### Persistence (summary)
 
@@ -140,4 +132,4 @@ Per project rules: use **3D raycasting** for interaction and hit logic, not grid
 
 **Current slice:** [`InteractionRay3D`](../src/Godot/InteractionRay3D.cs) raycasts against a pick volume aligned to the map, then fills [`GridPickResult`](../src/Core/Interaction/GridPickResult.cs) (`HasCell`, `X`, `Y`, `Z`). The Shell shows the pick in the HUD; Core rules can later branch on this struct for targeting, doors, etc.
 
-**Main scene:** [`Main.tscn`](../src/Godot/Main.tscn) root `Main` (`Node`) has `ShellUi` (HUD + pause menu + debug toggles under `LeftHudColumn`), `GridMap` (2D shell + `GameRoot` + `FogOverlayRenderer` + `DebugGridOverlay`), and `Interaction3D` (pick probe). `PickFloor` uses a `BoxShape3D` placeholder until `InteractionRay3D` resizes it at runtime. Update this section when hit filtering, layers, or entity ids are added.
+**Main scene:** [`Main.tscn`](../src/Godot/Main.tscn) root `Main` (`Node`) has `ShellUi` (HUD + pause menu + debug toggles under `LeftHudColumn`), `GridMap` (2D shell + `GameRoot` + `DebugGridOverlay`), and `Interaction3D` (pick probe). `PickFloor` uses a `BoxShape3D` placeholder until `InteractionRay3D` resizes it at runtime. Update this section when hit filtering, layers, or entity ids are added.

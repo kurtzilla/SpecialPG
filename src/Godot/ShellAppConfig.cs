@@ -7,6 +7,9 @@ namespace SpecialPG;
 /// <summary>Loads <c>res://config.ini</c> (Godot <see cref="ConfigFile"/>). Falls back to defaults if missing or invalid.</summary>
 public sealed class ShellAppConfig
 {
+    /// <summary>Clamp for <see cref="StartupOriginPatchChebyshevRadius"/> (Chebyshev cells around global origin).</summary>
+    public const int MaxStartupOriginPatchChebyshevRadius = 8;
+
     private const string Path = "res://config.ini";
     private const string UndoContext = "shell_runtime_config";
     private const int UndoCapacity = 128;
@@ -14,17 +17,7 @@ public sealed class ShellAppConfig
     public readonly record struct RuntimeShellSettings(
         float RenderScale,
         int MaxFps,
-        int VsyncMode,
-        bool FogGpuEnabled,
-        float FogEdgeOpacity,
-        float FogEdgeWidthCells,
-        float FogEdgeSoftness,
-        int FogEdgeSamples,
-        int FogMaskPixelsPerCell,
-        int FogVisualUpdateHz,
-        float FogRevealLerpSpeed,
-        float FogBrushHardCoreRatio,
-        float FogBrushFeatherExponent);
+        int VsyncMode);
 
     public ShellAppConfig(
         float cellSizePx,
@@ -36,30 +29,14 @@ public sealed class ShellAppConfig
         float zoomMin,
         float zoomMax,
         float zoomStep,
-        int fogRevealHalfWidthCells,
-        int fogRevealHalfHeightCells,
-        float fogEdgeOpacity,
-        bool fogEdgeEnabled,
-        bool fogGpuEnabled,
-        int fogMaskPixelsPerCell,
-        int fogVisualUpdateHz,
-        float fogRevealLerpSpeed,
-        float fogBrushHardCoreRatio,
-        float fogBrushFeatherExponent,
-        float fogEdgeWidthCells,
-        float fogEdgeSoftness,
-        int fogEdgeSamples,
         float renderScale,
         int maxFps,
         int vsyncMode,
         bool startupUseJsonSample,
         int startupSeed,
         int startupLandPercent,
-        bool fogSlidingMaskEnabled,
-        bool largeMapMode,
-        int fogMaskWindowCells,
-        int fogMaskRecenterMarginCells,
-        float startupRevealScale)
+        int startupOriginPatchChebyshevRadius,
+        bool largeMapMode)
     {
         CellSizePx = cellSizePx;
         DefaultMapWidthCells = defaultMapWidthCells;
@@ -70,30 +47,14 @@ public sealed class ShellAppConfig
         ZoomMin = zoomMin;
         ZoomMax = zoomMax;
         ZoomStep = zoomStep;
-        FogRevealHalfWidthCells = fogRevealHalfWidthCells;
-        FogRevealHalfHeightCells = fogRevealHalfHeightCells;
-        FogEdgeOpacity = fogEdgeOpacity;
-        FogEdgeEnabled = fogEdgeEnabled;
-        FogGpuEnabled = fogGpuEnabled;
-        FogMaskPixelsPerCell = fogMaskPixelsPerCell;
-        FogVisualUpdateHz = fogVisualUpdateHz;
-        FogRevealLerpSpeed = fogRevealLerpSpeed;
-        FogBrushHardCoreRatio = fogBrushHardCoreRatio;
-        FogBrushFeatherExponent = fogBrushFeatherExponent;
-        FogEdgeWidthCells = fogEdgeWidthCells;
-        FogEdgeSoftness = fogEdgeSoftness;
-        FogEdgeSamples = fogEdgeSamples;
         RenderScale = renderScale;
         MaxFps = maxFps;
         VsyncMode = vsyncMode;
         StartupUseJsonSample = startupUseJsonSample;
         StartupSeed = startupSeed;
         StartupLandPercent = startupLandPercent;
-        FogSlidingMaskEnabled = fogSlidingMaskEnabled;
+        StartupOriginPatchChebyshevRadius = startupOriginPatchChebyshevRadius;
         LargeMapMode = largeMapMode;
-        FogMaskWindowCells = fogMaskWindowCells;
-        FogMaskRecenterMarginCells = fogMaskRecenterMarginCells;
-        StartupRevealScale = startupRevealScale;
     }
 
     public float CellSizePx { get; }
@@ -116,43 +77,6 @@ public sealed class ShellAppConfig
 
     public float ZoomStep { get; }
 
-    public int FogRevealHalfWidthCells { get; }
-
-    public int FogRevealHalfHeightCells { get; }
-
-    /// <summary>Opacity for the one-tile fog edge band; 0=fully transparent, 1=fully opaque fog.</summary>
-    public float FogEdgeOpacity { get; }
-
-    /// <summary>When false, use baseline tile fog without hybrid edge feathering.</summary>
-    public bool FogEdgeEnabled { get; }
-
-    /// <summary>When true, fog is rendered by mask + shader overlay path.</summary>
-    public bool FogGpuEnabled { get; }
-
-    /// <summary>Mask resolution scalar in texels-per-cell for visual fog texture.</summary>
-    public int FogMaskPixelsPerCell { get; }
-
-    /// <summary>Frequency for visual fog stamping and interpolation updates.</summary>
-    public int FogVisualUpdateHz { get; }
-
-    /// <summary>Exponential speed factor for display-mask convergence toward target-mask.</summary>
-    public float FogRevealLerpSpeed { get; }
-
-    /// <summary>Inner reveal core ratio (0..1) that stamps fully clear before feathering.</summary>
-    public float FogBrushHardCoreRatio { get; }
-
-    /// <summary>Exponent used for brush feather alpha falloff near the reveal rim.</summary>
-    public float FogBrushFeatherExponent { get; }
-
-    /// <summary>Frontier feather width in tile units; 1.0 means one full tile.</summary>
-    public float FogEdgeWidthCells { get; }
-
-    /// <summary>Falloff exponent for edge alpha; larger = steeper fade near interior.</summary>
-    public float FogEdgeSoftness { get; }
-
-    /// <summary>Number of edge gradient bands per side (quality/perf knob).</summary>
-    public int FogEdgeSamples { get; }
-
     /// <summary>Window content scale factor; 1.0 = native internal resolution.</summary>
     public float RenderScale { get; }
 
@@ -171,24 +95,13 @@ public sealed class ShellAppConfig
     /// <summary>Land percent 0–100 for procedural cold start (water = 100 − land).</summary>
     public int StartupLandPercent { get; }
 
-    /// <summary>When true, GPU fog may use a fixed-size sliding mask on very large maps (see fog_mask_window_cells).</summary>
-    public bool FogSlidingMaskEnabled { get; }
+    /// <summary>
+    /// Chebyshev radius (in cells) for guaranteed flat land around global (0,0); see Core <c>OriginWalkabilityPatch</c>.
+    /// </summary>
+    public int StartupOriginPatchChebyshevRadius { get; }
 
     /// <summary>Enables large default map dimensions and large-map safeguards in the shell.</summary>
     public bool LargeMapMode { get; }
-
-    /// <summary>Sliding fog mask window size in cells (per axis), capped by map size.</summary>
-    public int FogMaskWindowCells { get; }
-
-    /// <summary>Recenter sliding fog mask when the anchor comes within this many cells of the mask edge.</summary>
-    public int FogMaskRecenterMarginCells { get; }
-
-    /// <summary>
-    /// Dimensionless scale for the <i>first</i> fog reveal only: effective radius is at least
-    /// <c>startup_reveal_scale</c> × (internal baseline from chunk size). Player UI should describe this as
-    /// “starting area size” (e.g. 0.5×–3×), not raw cell counts.
-    /// </summary>
-    public float StartupRevealScale { get; }
 
     public static ShellAppConfig LoadOrDefault()
     {
@@ -200,19 +113,6 @@ public sealed class ShellAppConfig
         const float defZMin = 0.35f;
         const float defZMax = 1.75f;
         const float defZStep = 0.085f;
-        const int defFogHalfW = 12;
-        const int defFogHalfH = 8;
-        const float defFogEdgeOpacity = 0.90f;
-        const bool defFogEdgeEnabled = true;
-        const bool defFogGpuEnabled = true;
-        const int defFogMaskPixelsPerCell = 2;
-        const int defFogVisualUpdateHz = 20;
-        const float defFogRevealLerpSpeed = 6.0f;
-        const float defFogBrushHardCoreRatio = 0.72f;
-        const float defFogBrushFeatherExponent = 1.40f;
-        const float defFogEdgeWidthCells = 1.60f;
-        const float defFogEdgeSoftness = 1.10f;
-        const int defFogEdgeSamples = 2;
         const int defChunkW = 32;
         const int defChunkH = 32;
         const float defRenderScale = 1.0f;
@@ -221,11 +121,8 @@ public sealed class ShellAppConfig
         const bool defStartupUseJsonSample = false;
         const int defStartupSeed = 1;
         const int defStartupLandPercent = 55;
-        const bool defFogSlidingMaskEnabled = true;
+        const int defStartupOriginPatchRadius = 2;
         const bool defLargeMapMode = false;
-        const int defFogMaskWindowCells = 256;
-        const int defFogMaskRecenterMarginCells = 48;
-        const float defStartupRevealScale = 1.0f;
 
         var cf = new ConfigFile();
         var err = cf.Load(Path);
@@ -233,11 +130,9 @@ public sealed class ShellAppConfig
         {
             GD.Print($"[ShellAppConfig] {Path} not loaded ({err}); using defaults.");
             return new ShellAppConfig(defCell, defW, defH, defChunkW, defChunkH, defSpeed, defZMin, defZMax, defZStep,
-                defFogHalfW, defFogHalfH, defFogEdgeOpacity, defFogEdgeEnabled, defFogGpuEnabled, defFogMaskPixelsPerCell,
-                defFogVisualUpdateHz, defFogRevealLerpSpeed, defFogBrushHardCoreRatio, defFogBrushFeatherExponent,
-                defFogEdgeWidthCells, defFogEdgeSoftness, defFogEdgeSamples, defRenderScale, defMaxFps, defVsyncMode,
-                defStartupUseJsonSample, defStartupSeed, defStartupLandPercent, defFogSlidingMaskEnabled, defLargeMapMode,
-                defFogMaskWindowCells, defFogMaskRecenterMarginCells, defStartupRevealScale);
+                defRenderScale, defMaxFps, defVsyncMode,
+                defStartupUseJsonSample, defStartupSeed, defStartupLandPercent, defStartupOriginPatchRadius,
+                defLargeMapMode);
         }
 
         float F(string key, float d) =>
@@ -262,46 +157,21 @@ public sealed class ShellAppConfig
             F("zoom_min", defZMin),
             F("zoom_max", defZMax),
             F("zoom_step", defZStep),
-            I("fog_reveal_half_width_cells", defFogHalfW),
-            I("fog_reveal_half_height_cells", defFogHalfH),
-            Mathf.Clamp(F("fog_edge_opacity", defFogEdgeOpacity), 0f, 1f),
-            B("fog_edge_enabled", defFogEdgeEnabled),
-            B("fog_gpu_enabled", defFogGpuEnabled),
-            Mathf.Clamp(I("fog_mask_pixels_per_cell", defFogMaskPixelsPerCell), 1, 32),
-            Mathf.Clamp(I("fog_visual_update_hz", defFogVisualUpdateHz), 10, 240),
-            Mathf.Clamp(F("fog_reveal_lerp_speed", defFogRevealLerpSpeed), 0.5f, 40.0f),
-            Mathf.Clamp(F("fog_brush_hard_core_ratio", defFogBrushHardCoreRatio), 0.2f, 0.95f),
-            Mathf.Clamp(F("fog_brush_feather_exp", defFogBrushFeatherExponent), 0.5f, 4.0f),
-            Mathf.Clamp(F("fog_edge_width_cells", defFogEdgeWidthCells), 0.25f, 2.5f),
-            Mathf.Clamp(F("fog_edge_softness", defFogEdgeSoftness), 0.5f, 4.0f),
-            Mathf.Clamp(I("fog_edge_samples", defFogEdgeSamples), 2, 16),
             F("render_scale", defRenderScale),
             I("max_fps", defMaxFps),
             I("vsync_mode", defVsyncMode),
             B("startup_use_json_sample", defStartupUseJsonSample),
             I("startup_seed", defStartupSeed),
             Mathf.Clamp(I("startup_land_percent", defStartupLandPercent), 0, 100),
-            B("fog_sliding_mask_enabled", defFogSlidingMaskEnabled),
-            largeMapMode,
-            Mathf.Clamp(I("fog_mask_window_cells", defFogMaskWindowCells), 32, 2048),
-            Mathf.Clamp(I("fog_mask_recenter_margin_cells", defFogMaskRecenterMarginCells), 8, 1024),
-            Mathf.Clamp(F("startup_reveal_scale", defStartupRevealScale), 0.25f, 4f));
+            Mathf.Clamp(I("startup_origin_patch_chebyshev_radius", defStartupOriginPatchRadius), 0,
+                MaxStartupOriginPatchChebyshevRadius),
+            largeMapMode);
     }
 
     public static Error SaveRuntimeShellSettings(
         float renderScale,
         int maxFps,
-        int vsyncMode,
-        bool fogGpuEnabled,
-        float fogEdgeOpacity,
-        float fogEdgeWidthCells,
-        float fogEdgeSoftness,
-        int fogEdgeSamples,
-        int fogMaskPixelsPerCell,
-        int fogVisualUpdateHz,
-        float fogRevealLerpSpeed,
-        float fogBrushHardCoreRatio,
-        float fogBrushFeatherExponent)
+        int vsyncMode)
     {
         var cf = new ConfigFile();
         var loadErr = cf.Load(Path);
@@ -313,18 +183,50 @@ public sealed class ShellAppConfig
         cf.SetValue("shell", "render_scale", renderScale);
         cf.SetValue("shell", "max_fps", maxFps);
         cf.SetValue("shell", "vsync_mode", vsyncMode);
-        cf.SetValue("shell", "fog_gpu_enabled", fogGpuEnabled);
-        // Keep legacy key in sync for backwards compatibility with existing toggles/presets.
-        cf.SetValue("shell", "fog_edge_enabled", fogGpuEnabled);
-        cf.SetValue("shell", "fog_edge_opacity", fogEdgeOpacity);
-        cf.SetValue("shell", "fog_edge_width_cells", fogEdgeWidthCells);
-        cf.SetValue("shell", "fog_edge_softness", fogEdgeSoftness);
-        cf.SetValue("shell", "fog_edge_samples", fogEdgeSamples);
-        cf.SetValue("shell", "fog_mask_pixels_per_cell", fogMaskPixelsPerCell);
-        cf.SetValue("shell", "fog_visual_update_hz", fogVisualUpdateHz);
-        cf.SetValue("shell", "fog_reveal_lerp_speed", fogRevealLerpSpeed);
-        cf.SetValue("shell", "fog_brush_hard_core_ratio", fogBrushHardCoreRatio);
-        cf.SetValue("shell", "fog_brush_feather_exp", fogBrushFeatherExponent);
+        return cf.Save(Path);
+    }
+
+    /// <summary>Writes <c>startup_land_percent</c> under <c>[shell]</c>; leaves other keys untouched.</summary>
+    public static Error PersistStartupLandPercent(int landPercent)
+    {
+        landPercent = Mathf.Clamp(landPercent, 0, 100);
+        var cf = new ConfigFile();
+        var loadErr = cf.Load(Path);
+        if (loadErr != Error.Ok && loadErr != Error.FileNotFound)
+        {
+            return loadErr;
+        }
+
+        cf.SetValue("shell", "startup_land_percent", landPercent);
+        return cf.Save(Path);
+    }
+
+    /// <summary>Writes <c>startup_seed</c> under <c>[shell]</c>; leaves other keys untouched.</summary>
+    public static Error PersistStartupSeed(int seed)
+    {
+        var cf = new ConfigFile();
+        var loadErr = cf.Load(Path);
+        if (loadErr != Error.Ok && loadErr != Error.FileNotFound)
+        {
+            return loadErr;
+        }
+
+        cf.SetValue("shell", "startup_seed", seed);
+        return cf.Save(Path);
+    }
+
+    /// <summary>Writes <c>startup_origin_patch_chebyshev_radius</c> under <c>[shell]</c>.</summary>
+    public static Error PersistStartupOriginPatchChebyshevRadius(int radiusCells)
+    {
+        radiusCells = Mathf.Clamp(radiusCells, 0, MaxStartupOriginPatchChebyshevRadius);
+        var cf = new ConfigFile();
+        var loadErr = cf.Load(Path);
+        if (loadErr != Error.Ok && loadErr != Error.FileNotFound)
+        {
+            return loadErr;
+        }
+
+        cf.SetValue("shell", "startup_origin_patch_chebyshev_radius", radiusCells);
         return cf.Save(Path);
     }
 

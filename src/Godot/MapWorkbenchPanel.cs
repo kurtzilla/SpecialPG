@@ -240,8 +240,11 @@ public partial class MapWorkbenchPanel : Control
         }
 
         var p = BuildParametersFromUi();
-        var previewMap = ProceduralWorldMapGenerator.BuildBoundedWorld(128, 128, 32, 32, p);
-        WaterTerrainRules.ApplyMinimumWaterBlobSizeTwoByTwo(previewMap);
+        var originR = _gameRoot!.ShellEffectiveOriginPatchChebyshevRadius;
+        const int previewSide = 128;
+        var previewMin = -(previewSide / 2);
+        var previewMap = ProceduralWorldMapGenerator.BuildBoundedWorld(previewSide, previewSide, 32, 32, p,
+            previewMin, previewMin, originR);
         _previewRect.Texture =
             MapPreviewRasterizer.RasterizeFloor(previewMap.GetOrCreateFloor(0), previewMap.TerrainConfig);
     }
@@ -254,14 +257,20 @@ public partial class MapWorkbenchPanel : Control
         }
 
         var p = BuildParametersFromUi();
+        var originR = _gameRoot.ShellEffectiveOriginPatchChebyshevRadius;
+        var w = _gameRoot.ShellDefaultMapWidthCells;
+        var h = _gameRoot.ShellDefaultMapHeightCells;
         var map = ProceduralWorldMapGenerator.BuildBoundedWorld(
-            _gameRoot.ShellDefaultMapWidthCells,
-            _gameRoot.ShellDefaultMapHeightCells,
+            w,
+            h,
             _gameRoot.ShellChunkWidthCells,
             _gameRoot.ShellChunkHeightCells,
-            p);
+            p,
+            minX: -(w / 2),
+            minY: -(h / 2),
+            originPatchChebyshevRadius: originR);
 
-        _gameRoot.ApplyMapFromWorkbench(map, p);
+        _gameRoot.ApplyMapFromWorkbench(map, p, originR);
         CloseWorkbench();
     }
 

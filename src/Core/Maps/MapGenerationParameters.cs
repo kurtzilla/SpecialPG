@@ -2,6 +2,7 @@ namespace SpecialPG.Core.Maps;
 
 /// <summary>
 /// Versioned inputs for procedural generation and round-trip with saved maps / map workbench UI.
+/// <see cref="LandPercent"/> / <see cref="WaterPercent"/> target global cell fractions (~); optional 2×2 water blob cleanup can reduce visible water.
 /// </summary>
 public readonly record struct MapGenerationParameters(
     int SchemaVersion,

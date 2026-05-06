@@ -24,8 +24,28 @@
         "-NoProfile",
         "-ExecutionPolicy",
         "Bypass",
+        "-File",
+        "${workspaceFolder:SpecialPG}/.scripts/RunGodotDetached.ps1",
+        "-WorkspaceRoot",
+        "${workspaceFolder:SpecialPG}"
+      ],
+      "group": "none",
+      "presentation": {
+        "reveal": "silent",
+        "panel": "dedicated"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Godot: Wait 800ms (after detached)",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
         "-Command",
-        "Start-Process -FilePath godot -ArgumentList '--path','${workspaceFolder:SpecialPG}/src/Godot' | Out-Null"
+        "Start-Sleep -Milliseconds 800"
       ],
       "group": "none",
       "presentation": {
@@ -47,25 +67,11 @@
         "-WorkspaceRoot",
         "${workspaceFolder:SpecialPG}",
         "-ConfigName",
-        "Godot: Run + Auto Attach (No Picker)"
-      ],
-      "group": "none",
-      "presentation": {
-        "reveal": "always",
-        "panel": "dedicated"
-      },
-      "problemMatcher": []
-    },
-    {
-      "label": "Godot: Stabilize + Re-resolve PID",
-      "type": "shell",
-      "command": "powershell",
-      "args": [
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        "Start-Sleep -Milliseconds 1200; & '${workspaceFolder:SpecialPG}/.scripts/ResolveGodotPid.ps1' -WorkspaceRoot '${workspaceFolder:SpecialPG}' -ConfigName 'Godot: Run + Auto Attach (No Picker)' -TimeoutSeconds 8 -SettleMilliseconds 400"
+        "Godot: Run + Auto Attach (No Picker)",
+        "-TimeoutSeconds",
+        "5",
+        "-SettleMilliseconds",
+        "3000"
       ],
       "group": "none",
       "presentation": {
@@ -80,8 +86,8 @@
       "dependsOn": [
         "build solution (Core + Shell)",
         "Godot: Run Project (Detached)",
-        "Godot: Resolve PID (No Picker)",
-        "Godot: Stabilize + Re-resolve PID"
+        "Godot: Wait 800ms (after detached)",
+        "Godot: Resolve PID (No Picker)"
       ],
       "problemMatcher": []
     },
