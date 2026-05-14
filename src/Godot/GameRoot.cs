@@ -19,7 +19,7 @@ public partial class GameRoot : Node2D
     private const string ShellRevisionLogPath = "res://../../docs/shell-feature-revision-log.md";
 
     /// <summary>Bump when you add user-visible shell behavior; add a line to <see cref="ShellFeatureChangelogLines"/>.</summary>
-    private const int ShellFeatureRevision = 35;
+    private const int ShellFeatureRevision = 44;
 
     private const int StartupZoomNudgeFloorCellSpan = 512;
 
@@ -41,7 +41,7 @@ public partial class GameRoot : Node2D
         "HUD readouts throttled (~12Hz) to stay snappy without per-frame text churn.",
         "Config knobs: render_scale / max_fps / vsync_mode for quick perf profiling.",
         "Pause menu: Map generator / Map editor (shared land-water UI); GameRoot.ApplyMapFromWorkbench + MapSaveEnvelope types.",
-        "Cold start: procedural map from config.ini startup_seed / startup_land_percent (startup_use_json_sample for JSON-first dev).",
+        "Cold start: procedural map from startup_seed / startup_land_percent (optional randomize_startup_seed per session; JSON via startup_use_json_sample).",
         "TileTraversal: water surface (elevation below threshold) is never walkable.",
         "Sub-tile grid (16×16 per cell): Core TryStepSubTile + SubTileTraversal; shell foot collision + actor sync use fractional cell position.",
         "WASD: discrete one sub-tile step per key event (incl. repeat); continuous pixel glide removed from ShellPlayer.",
@@ -52,6 +52,15 @@ public partial class GameRoot : Node2D
         "REV 33: All fog-of-war and fog overlay code removed; terrain always renders, no reveal mask, no shader.",
         "REV 34: Spawn at global (0,0) with procedural land-bridge to LCC; HUD hover tile under stats; grid line canvas transform fix.",
         "REV 35: Procedural maps centered on tile (0,0); hover uses global canvas transform; grid stroke scales at low zoom; larger shell fonts.",
+        "REV 36: _PhysicsProcess syncs Camera2D after WASD tick; env SPECIALPG_PROFILE_SHELL_DRAW logs avg _Draw ms (terrain+grid).",
+        "REV 37: Terrain QueueRedraw gated on visible cell bounds + floor + zoom; profile_shell_draw + randomize_startup_seed in config.ini; random procedural cold-start session seed when enabled.",
+        "REV 38: WASD no longer QueueRedraw/MarkShellViewDirty each sub-step (cell gate effective); wasd_steps_per_second in config.ini.",
+        "REV 39: ShellPlayer smooths visual foot toward Core target; wasd_max_sub_steps_per_physics_frame; Core sync uses AuthoritativeFootWorld.",
+        "REV 40: Removed move_speed_px_s / MoveSpeedPxS (unused); discrete speed remains wasd_steps_per_second only.",
+        "REV 41: Grid lines use antialiased strokes, no canvas snap (aligns with terrain); softer chunk vs cell stroke ratio; wasd_max_sub_steps default 16 clamp 1..48.",
+        "REV 42: Thinner tile grid strokes + lower zoom floor so chunk boundaries read clearly vs cell edges.",
+        "REV 43: ForceLandWalkMargin after origin patch + land bridge; HUD ms/frame vs optional Draw avg; softer ForceLand terrain tint.",
+        "REV 44: Terrain QueueRedraw only when cull window expands past last draw (smooth camera ±1 cell chatter).",
     };
 
     private static readonly Color GridLineColor = new(0.085f, 0.09f, 0.105f, 0.81f);
@@ -70,10 +79,23 @@ public partial class GameRoot : Node2D
     private Vector2I _lastSyncedCell = new(-1, -1);
     private int _lastSyncedActorZ = int.MinValue;
     private Vector2 _zoom = Vector2.One;
-    private Vector2 _lastPhysicsRedrawPlayerPos = new(float.NaN, float.NaN);
     private Vector2 _lastPhysicsRedrawZoom = new(float.NaN, float.NaN);
+    private bool _haveLastRedrawCullCells;
+    private int _lastRedrawCullMinGx;
+    private int _lastRedrawCullMaxGx;
+    private int _lastRedrawCullMinGy;
+    private int _lastRedrawCullMaxGy;
+    private int _lastRedrawCullActorZ = int.MinValue;
     private double _hudReadoutAccumS = 1.0;
     private ulong _lastBlockedStepLogMs;
+
+    /// <summary>When set via env or <c>profile_shell_draw</c> in config, logs rolling average <c>_Draw</c> time for terrain+grid.</summary>
+    private const string ShellDrawProfileEnvVar = "SPECIALPG_PROFILE_SHELL_DRAW";
+
+    private bool _shellDrawProfileEnabled;
+    private int _shellDrawProfileSampleCount;
+    private ulong _shellDrawProfileAccumUsec;
+    private double _shellDrawProfileLastAvgMs;
 
     private WorldState _world = null!;
     private int[] _presentZs = Array.Empty<int>();
@@ -94,11 +116,6 @@ public partial class GameRoot : Node2D
     private const int DebugPlaceholderRngSeed = unchecked((int)0xC0FFEE);
     private const double HudReadoutIntervalS = 1.0 / 12.0;
     private const ulong BlockedStepLogIntervalMs = 250;
-
-    /// <summary>
-    /// WASD steps per second while keys are held (physics-driven; avoids OS key-repeat delay).
-    /// </summary>
-    private const double WasdStepsPerSecond = 14.0;
 
     private double _wasdStepDebtAccum;
     private bool _wasdKeysHeldLastPhysics;
@@ -156,8 +173,6 @@ public partial class GameRoot : Node2D
 
     public float ShellCellSizePixels => _cellSizePx;
 
-    public float MoveSpeedPxS => _shell.MoveSpeedPxS;
-
     /// <summary>Smoothed frames per second from <see cref="Engine.GetFramesPerSecond"/>; updated each <c>_Process</c> for HUD and external readers.</summary>
     public float ShellFps { get; private set; }
 
@@ -196,10 +211,11 @@ public partial class GameRoot : Node2D
         }
 
         var floor = ActiveFloorSlice;
-        var next = _shellPlayer.Position + delta;
+        var foot = _shellPlayer.AuthoritativeFootWorld;
+        var next = foot + delta;
         if (IsFootWalkableWorld(next, floor))
         {
-            _shellPlayer.Position = next;
+            _shellPlayer.SetFootTargetWorld(next, true);
         }
         else
         {
@@ -207,20 +223,20 @@ public partial class GameRoot : Node2D
             var slid = false;
             if (Mathf.Abs(delta.X) > axisEps)
             {
-                var xOnly = new Vector2(next.X, _shellPlayer.Position.Y);
+                var xOnly = new Vector2(next.X, foot.Y);
                 if (IsFootWalkableWorld(xOnly, floor))
                 {
-                    _shellPlayer.Position = xOnly;
+                    _shellPlayer.SetFootTargetWorld(xOnly, true);
                     slid = true;
                 }
             }
 
             if (!slid && Mathf.Abs(delta.Y) > axisEps)
             {
-                var yOnly = new Vector2(_shellPlayer.Position.X, next.Y);
+                var yOnly = new Vector2(foot.X, next.Y);
                 if (IsFootWalkableWorld(yOnly, floor))
                 {
-                    _shellPlayer.Position = yOnly;
+                    _shellPlayer.SetFootTargetWorld(yOnly, true);
                 }
             }
         }
@@ -237,6 +253,7 @@ public partial class GameRoot : Node2D
         _shell = ShellAppConfig.LoadOrDefault();
         _cellSizePx = _shell.CellSizePx;
         EnsureUiCancelBinding();
+        InitShellDrawProfiling();
 
         var parent = GetParent();
         _shellHud = parent?.GetNodeOrNull<ShellHudLayer>("ShellUi/ShellHudRoot");
@@ -300,7 +317,13 @@ public partial class GameRoot : Node2D
         }
         else
         {
-            var parameters = MapGenerationParameters.Create(_shell.StartupSeed, _shell.StartupLandPercent);
+            var sessionSeed = _shell.StartupSeed;
+            if (_shell.RandomizeStartupSeed)
+            {
+                sessionSeed = PickRandomProceduralSessionSeed();
+            }
+
+            var parameters = MapGenerationParameters.Create(sessionSeed, _shell.StartupLandPercent);
             var originR = Mathf.Clamp(_shell.StartupOriginPatchChebyshevRadius, 0,
                 ShellAppConfig.MaxStartupOriginPatchChebyshevRadius);
             _committedOriginPatchChebyshevRadius = originR;
@@ -316,8 +339,9 @@ public partial class GameRoot : Node2D
                 originPatchChebyshevRadius: originR);
             _committedGenerationParameters = parameters;
             _sessionMapOrigin = SessionMapOrigin.ProceduralColdStart;
+            var seedNote = _shell.RandomizeStartupSeed ? "session seed (randomize_startup_seed)" : "startup_seed";
             _mapSourceSummary =
-                $"Procedural cold start seed {parameters.Seed} land={parameters.LandPercent}% ({_shell.DefaultMapWidthCells}×{_shell.DefaultMapHeightCells})";
+                $"Procedural cold start {seedNote}={parameters.Seed} land={parameters.LandPercent}% ({_shell.DefaultMapWidthCells}×{_shell.DefaultMapHeightCells})";
         }
 
         BootstrapWorldFromMap(map, logBootLine: true);
@@ -571,7 +595,13 @@ public partial class GameRoot : Node2D
         _hudReadoutAccumS = 0.0;
         var fps = Mathf.Max(1f, ShellFps);
         var frameMs = 1000f / fps;
-        _shellHud.SetPerfReadout($"{frameMs:F1} ms FTM");
+        var perf = $"{frameMs:F1} ms/frame (from FPS)";
+        if (_shellDrawProfileEnabled && _shellDrawProfileLastAvgMs > 0)
+        {
+            perf += $"  |  Draw {_shellDrawProfileLastAvgMs:F2} ms avg (terrain+grid)";
+        }
+
+        _shellHud.SetPerfReadout(perf);
         _shellHud.SetFpsReadout($"{Mathf.RoundToInt(ShellFps)} FPS");
 
         _shellHud.SetFloorReadout($"{_world.ActorZ} FLR");
@@ -585,33 +615,50 @@ public partial class GameRoot : Node2D
             return;
         }
 
+        TickWasdDiscreteMovement(delta);
+
         _camera2D.Position = _shellPlayer.Position;
         _camera2D.Zoom = _zoom;
 
-        TickWasdDiscreteMovement(delta);
-
-        const float moveEpsSq = 1e-6f;
-        var pos = _shellPlayer.Position;
-        var moved = float.IsNaN(_lastPhysicsRedrawPlayerPos.X)
-                    || (pos - _lastPhysicsRedrawPlayerPos).LengthSquared() > moveEpsSq;
         var zoomed = float.IsNaN(_lastPhysicsRedrawZoom.X) || _lastPhysicsRedrawZoom != _zoom;
-        if (!moved && !zoomed)
+
+        var terrainDirty = zoomed;
+        if (_world is not null)
+        {
+            var floor = ActiveFloorSlice;
+            var visible = GetExpandedVisibleCullRect();
+            GetVisibleGlobalCellBounds(floor, visible, out var minGx, out var maxGx, out var minGy, out var maxGy);
+            terrainDirty = terrainDirty
+                           || !_haveLastRedrawCullCells
+                           || _world.ActorZ != _lastRedrawCullActorZ
+                           || TerrainCullExceedsLastDrawnWindow(minGx, maxGx, minGy, maxGy);
+            if (terrainDirty)
+            {
+                _haveLastRedrawCullCells = true;
+                _lastRedrawCullActorZ = _world.ActorZ;
+                _lastRedrawCullMinGx = minGx;
+                _lastRedrawCullMaxGx = maxGx;
+                _lastRedrawCullMinGy = minGy;
+                _lastRedrawCullMaxGy = maxGy;
+            }
+        }
+
+        if (!terrainDirty)
         {
             QueueDebugOverlayRedrawIfVisible();
             return;
         }
 
-        _lastPhysicsRedrawPlayerPos = pos;
         _lastPhysicsRedrawZoom = _zoom;
 
-        // Camera moved (pan/zoom): repaint the visible terrain.
+        // Visible tile window, floor, or zoom changed: repaint terrain + grid.
         QueueRedraw();
 
         QueueDebugOverlayRedrawIfVisible();
     }
 
     /// <summary>
-    /// While WASD are held, advance discrete sub-steps at <see cref="WasdStepsPerSecond"/>; first step fires on the
+    /// While WASD are held, advance discrete sub-steps at <see cref="ShellAppConfig.WasdStepsPerSecond"/>; first step fires on the
     /// frame keys become pressed (no wait for OS key-repeat).
     /// </summary>
     private void TickWasdDiscreteMovement(double delta)
@@ -642,19 +689,24 @@ public partial class GameRoot : Node2D
 
         _wasdKeysHeldLastPhysics = true;
 
-        _wasdStepDebtAccum += delta * WasdStepsPerSecond;
-        while (_wasdStepDebtAccum >= 1.0)
+        _wasdStepDebtAccum += delta * _shell.WasdStepsPerSecond;
+        var maxSteps = Mathf.Max(1, _shell.WasdMaxSubStepsPerPhysicsFrame);
+        var applied = 0;
+        while (_wasdStepDebtAccum >= 1.0 && applied < maxSteps)
         {
+            applied++;
             _wasdStepDebtAccum -= 1.0;
             if (!TryApplyWasdSubTileStepOnce())
+            {
                 break;
+            }
         }
     }
 
-    /// <summary>Next <see cref="_PhysicsProcess"/> will schedule a redraw even if player X/Y and zoom are unchanged (e.g. floor index changed).</summary>
+    /// <summary>Next <see cref="_PhysicsProcess"/> will schedule a redraw even if visible cell bounds and zoom are unchanged (e.g. floor or map replaced).</summary>
     private void MarkShellViewDirty()
     {
-        _lastPhysicsRedrawPlayerPos = new Vector2(float.NaN, float.NaN);
+        _haveLastRedrawCullCells = false;
         _lastPhysicsRedrawZoom = new Vector2(float.NaN, float.NaN);
         _hudReadoutAccumS = HudReadoutIntervalS;
     }
@@ -775,6 +827,8 @@ public partial class GameRoot : Node2D
 
     public override void _Draw()
     {
+        var profileStartUsec = _shellDrawProfileEnabled ? Time.GetTicksUsec() : 0UL;
+
         if (_camera2D is not null && _shellPlayer is not null)
         {
             _camera2D.Position = _shellPlayer.Position;
@@ -783,6 +837,7 @@ public partial class GameRoot : Node2D
 
         if (_world is null)
         {
+            RecordShellDrawProfileSample(profileStartUsec);
             return;
         }
 
@@ -826,7 +881,52 @@ public partial class GameRoot : Node2D
             }
         }
 
-        DrawGridLines(floor, origin, visible);
+        DrawGridLines(floor, origin, minGx, maxGx, minGy, maxGy);
+        RecordShellDrawProfileSample(profileStartUsec);
+    }
+
+    private void InitShellDrawProfiling()
+    {
+        var v = (global::System.Environment.GetEnvironmentVariable(ShellDrawProfileEnvVar) ?? string.Empty).Trim();
+        var fromEnv = v == "1" || v.Equals("true", StringComparison.OrdinalIgnoreCase);
+        _shellDrawProfileEnabled = _shell.ProfileShellDraw || fromEnv;
+        if (_shellDrawProfileEnabled)
+        {
+            GD.Print(
+                $"[GameRoot] Shell terrain _Draw profiling enabled (shell profile_shell_draw or {ShellDrawProfileEnvVar}); avg ms every ~90 draws.");
+        }
+    }
+
+    private static int PickRandomProceduralSessionSeed()
+    {
+        unchecked
+        {
+            var a = (long)GD.Randi();
+            var b = (long)GD.Randi();
+            return (int)(a ^ b);
+        }
+    }
+
+    private void RecordShellDrawProfileSample(ulong startUsec)
+    {
+        if (!_shellDrawProfileEnabled || startUsec == 0UL)
+        {
+            return;
+        }
+
+        var elapsed = Time.GetTicksUsec() - startUsec;
+        _shellDrawProfileAccumUsec += elapsed;
+        _shellDrawProfileSampleCount++;
+        if (_shellDrawProfileSampleCount < 90)
+        {
+            return;
+        }
+
+        var avgMs = _shellDrawProfileAccumUsec / (double)_shellDrawProfileSampleCount / 1000.0;
+        GD.Print($"[GameRoot] _Draw avg {avgMs:F2} ms over {_shellDrawProfileSampleCount} samples (terrain+grid).");
+        _shellDrawProfileLastAvgMs = avgMs;
+        _shellDrawProfileAccumUsec = 0;
+        _shellDrawProfileSampleCount = 0;
     }
 
     private FloorSlice ActiveFloorSlice
@@ -914,14 +1014,13 @@ public partial class GameRoot : Node2D
         }
 
         var floor = ActiveFloorSlice;
-        _shellPlayer.Position =
-            CellSubCenterWorld(_world.ActorX, _world.ActorY, _world.ActorSubX, _world.ActorSubY, floor);
+        _shellPlayer.SetFootTargetWorld(
+            CellSubCenterWorld(_world.ActorX, _world.ActorY, _world.ActorSubX, _world.ActorSubY, floor),
+            snapImmediate: false);
 
         _lastSyncedCell = new Vector2I(_world.ActorX, _world.ActorY);
         _lastSyncedActorZ = _world.ActorZ;
         RefreshShellHud();
-        MarkShellViewDirty();
-        QueueRedraw();
         QueueDebugOverlayRedrawIfVisible();
         return true;
     }
@@ -947,7 +1046,8 @@ public partial class GameRoot : Node2D
             _world.TerrainEvaluator) ?? "unknown";
         GD.Print(
             $"[GameRoot] WASD blocked at actor=({_world.ActorX},{_world.ActorY}).sub({_world.ActorSubX},{_world.ActorSubY})" +
-            $" → ({nx},{ny}).sub({nsx},{nsy}) z={_world.ActorZ}: {reason}");
+            $" → ({nx},{ny}).sub({nsx},{nsy}) z={_world.ActorZ}: {reason}. " +
+            "If this is sub-tile water next to forced land, see docs/debugging.md (patch edges).");
     }
 
     /// <summary>Core axes: +Y north. Opposing keys cancel; each axis clamped to -1..1 for <see cref="WorldState.TryStepSubTile"/>.</summary>
@@ -1440,10 +1540,17 @@ public partial class GameRoot : Node2D
     {
         var invZ = 1f / Mathf.Max(1e-4f, _zoom.X);
         invZ = Mathf.Clamp(invZ, 0.45f, 10f);
-        return Mathf.Max(1f, baseLocalWidth * invZ);
+        // Allow sub-1 local widths so fine tile lines stay below chunk strokes (antialiased DrawLine still reads).
+        return Mathf.Max(0.38f, baseLocalWidth * invZ);
     }
 
-    private void DrawGridLines(FloorSlice floor, Vector2 gridOriginTopLeft, Rect2 visible)
+    /// <summary>
+    /// Grid lines use the same global cell bounds as terrain (plus margin) so chunk stroke width does not flip when
+    /// float-based cull indices disagree with <see cref="WorldToCellFloor"/> by one column. Strokes are antialiased and
+    /// not canvas-snapped so they stay on <see cref="CellRectGlobal"/> edges (avoids jagged T-junctions at chunk borders vs terrain).
+    /// Tile lines use a thin base width; chunk multiples of <see cref="ShellAppConfig.ChunkWidthCells"/> / height get a thicker stroke.
+    /// </summary>
+    private void DrawGridLines(FloorSlice floor, Vector2 gridOriginTopLeft, int minGx, int maxGx, int minGy, int maxGy)
     {
         var cs = _cellSizePx;
         var width = floor.Width;
@@ -1454,56 +1561,51 @@ public partial class GameRoot : Node2D
         var y0 = gridOriginTopLeft.Y;
         var x1 = x0 + boardW;
         var y1 = y0 + boardH;
+        const float tileLineWidth = 0.48f;
         const float chunkBorderWidth = 1.55f;
-        const float regularLineWidth = chunkBorderWidth * 0.5f;
         var chunkW = Math.Max(1, _shell.ChunkWidthCells);
         var chunkH = Math.Max(1, _shell.ChunkHeightCells);
+        const int margin = 1;
 
-        var minIx = Mathf.Clamp(Mathf.FloorToInt((visible.Position.X - x0) / cs), 0, width);
-        var maxIx = Mathf.Clamp(Mathf.CeilToInt((visible.Position.X + visible.Size.X - x0) / cs), 0, width);
-        for (var i = minIx; i <= maxIx; i++)
+        var minX = floor.MinX;
+        var minY = floor.MinY;
+        var gxStart = Mathf.Clamp(minGx - margin, minX, minX + width);
+        var gxEnd = Mathf.Clamp(maxGx + margin, minX, minX + width);
+        for (var gx = gxStart; gx <= gxEnd; gx++)
         {
-            var x = CellRectGlobal(floor.MinX + i, floor.MinY, floor, gridOriginTopLeft).Position.X;
-            var widthPx = (i % chunkW == 0) ? chunkBorderWidth : regularLineWidth;
+            var x = CellRectGlobal(gx, minY, floor, gridOriginTopLeft).Position.X;
+            var lx = gx - minX;
+            var widthPx = (lx % chunkW == 0) ? chunkBorderWidth : tileLineWidth;
             var from = new Vector2(x, y0);
             var to = new Vector2(x, y1);
-            SnapVerticalLineToCanvasPixels(ref from, ref to);
-            DrawLine(from, to, GridLineColor, GridLineStrokeLocal(widthPx), false);
+            DrawLine(from, to, GridLineColor, GridLineStrokeLocal(widthPx), true);
         }
 
-        var minJy = Mathf.Clamp(Mathf.FloorToInt((visible.Position.Y - y0) / cs), 0, height);
-        var maxJy = Mathf.Clamp(Mathf.CeilToInt((visible.Position.Y + visible.Size.Y - y0) / cs), 0, height);
-        for (var j = minJy; j <= maxJy; j++)
+        var gyStart = Mathf.Clamp(minGy - margin, minY, minY + height);
+        var gyEnd = Mathf.Clamp(maxGy + margin, minY, minY + height);
+        for (var gy = gyStart; gy <= gyEnd; gy++)
         {
             float y;
-            if (j < height)
+            int jStripe;
+            if (gy <= minY + height - 1)
             {
-                var gy = floor.MinY + height - 1 - j;
-                y = CellRectGlobal(floor.MinX, gy, floor, gridOriginTopLeft).Position.Y;
+                y = CellRectGlobal(minX, gy, floor, gridOriginTopLeft).Position.Y;
+                var ly = gy - minY;
+                jStripe = height - 1 - ly;
             }
             else
             {
-                var south = CellRectGlobal(floor.MinX, floor.MinY, floor, gridOriginTopLeft);
+                var south = CellRectGlobal(minX, minY, floor, gridOriginTopLeft);
                 y = south.Position.Y + south.Size.Y;
+                jStripe = height;
             }
 
-            var widthPx = (j % chunkH == 0) ? chunkBorderWidth : regularLineWidth;
+            var widthPx = (jStripe % chunkH == 0) ? chunkBorderWidth : tileLineWidth;
             var from = new Vector2(x0, y);
             var to = new Vector2(x1, y);
-            SnapHorizontalLineToCanvasPixels(ref from, ref to);
-            DrawLine(from, to, GridLineColor, GridLineStrokeLocal(widthPx), false);
+            DrawLine(from, to, GridLineColor, GridLineStrokeLocal(widthPx), true);
         }
     }
-
-    /// <summary>
-    /// <see cref="CanvasItem.GetCanvasTransform"/> maps this node's local coordinates → canvas (viewport) pixels;
-    /// round in canvas space so grid lines land on integer screen pixels at fractional zoom.
-    /// </summary>
-    private Vector2 LocalPointToCanvas(Vector2 localPt) =>
-        GetCanvasTransform() * localPt;
-
-    private Vector2 CanvasPointToLocal(Vector2 canvasPt) =>
-        GetCanvasTransform().AffineInverse() * canvasPt;
 
     /// <summary>One-line hover readout: <c>[terrain] x, y</c> in grid world space (F2); false when off the board.</summary>
     public bool TryGetHoverTileReadout(out string line)
@@ -1554,7 +1656,7 @@ public partial class GameRoot : Node2D
         }
 
         var floor = ShellGetActiveFloorSlice();
-        var pos = _shellPlayer.Position;
+        var pos = _shellPlayer.AuthoritativeFootWorld;
         if (!TryWorldToSubCell(pos, floor, out var gx, out var gy, out var sx, out var sy))
         {
             line = "[—] —";
@@ -1572,28 +1674,6 @@ public partial class GameRoot : Node2D
             _world.Map.TerrainConfig);
         line = $"[{terrain}] {FormatWorldCoord(pos.X)}, {FormatWorldCoord(pos.Y)}";
         return true;
-    }
-
-    private void SnapVerticalLineToCanvasPixels(ref Vector2 from, ref Vector2 to)
-    {
-        var c0 = LocalPointToCanvas(from);
-        var c1 = LocalPointToCanvas(to);
-        var rx = Mathf.Round((c0.X + c1.X) * 0.5f);
-        c0.X = rx;
-        c1.X = rx;
-        from = CanvasPointToLocal(c0);
-        to = CanvasPointToLocal(c1);
-    }
-
-    private void SnapHorizontalLineToCanvasPixels(ref Vector2 from, ref Vector2 to)
-    {
-        var c0 = LocalPointToCanvas(from);
-        var c1 = LocalPointToCanvas(to);
-        var ry = Mathf.Round((c0.Y + c1.Y) * 0.5f);
-        c0.Y = ry;
-        c1.Y = ry;
-        from = CanvasPointToLocal(c0);
-        to = CanvasPointToLocal(c1);
     }
 
     private Rect2 GetVisibleWorldRect()
@@ -1614,6 +1694,16 @@ public partial class GameRoot : Node2D
         var pad = Mathf.Max(2f, _cellSizePx);
         return r.Grow(pad);
     }
+
+    /// <summary>
+    /// True when the tight cell window from the camera now extends beyond the last terrain+grid redraw window.
+    /// Shrinks or one-cell jitters inside the last window do not queue a redraw (avoids hill/coast tint flicker).
+    /// </summary>
+    private bool TerrainCullExceedsLastDrawnWindow(int minGx, int maxGx, int minGy, int maxGy) =>
+        minGx < _lastRedrawCullMinGx
+        || maxGx > _lastRedrawCullMaxGx
+        || minGy < _lastRedrawCullMinGy
+        || maxGy > _lastRedrawCullMaxGy;
 
     /// <summary>Bounding global cell indices for <paramref name="visible"/> using the same north-up mapping as <see cref="WorldToCellFloor"/>.</summary>
     private void GetVisibleGlobalCellBounds(FloorSlice floor, Rect2 visible, out int minGx, out int maxGx, out int minGy,
@@ -1890,8 +1980,9 @@ public partial class GameRoot : Node2D
         }
 
         var f = ActiveFloorSlice;
-        _shellPlayer.Position =
-            CellSubCenterWorld(_world.ActorX, _world.ActorY, _world.ActorSubX, _world.ActorSubY, f);
+        _shellPlayer.SetFootTargetWorld(
+            CellSubCenterWorld(_world.ActorX, _world.ActorY, _world.ActorSubX, _world.ActorSubY, f),
+            snapImmediate: true);
         _lastSyncedCell = new Vector2I(-1, -1);
         _lastSyncedActorZ = int.MinValue;
         SyncActorFromPlayerFoot(forceHud: true);
@@ -1905,7 +1996,7 @@ public partial class GameRoot : Node2D
         }
 
         var floor = ActiveFloorSlice;
-        if (!TryWorldToSubCell(_shellPlayer.Position, floor, out var gx, out var gy, out var sx, out var sy))
+        if (!TryWorldToSubCell(_shellPlayer.AuthoritativeFootWorld, floor, out var gx, out var gy, out var sx, out var sy))
         {
             return;
         }
@@ -1919,7 +2010,6 @@ public partial class GameRoot : Node2D
             _lastSyncedCell = c;
             _lastSyncedActorZ = _world.ActorZ;
             RefreshShellHud();
-            QueueRedraw();
             QueueDebugOverlayRedrawIfVisible();
         }
     }

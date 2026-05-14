@@ -15,6 +15,10 @@ run/main_scene="res://Main.tscn"
 config/features=PackedStringArray("4.6", "C#", "Forward Plus")
 config/icon="res://icon.svg"
 
+[autoload]
+
+DebugWait="res://addons/external_debug_attach/DebugWaitAutoload.gd"
+
 [display]
 
 window/size/viewport_width=3840

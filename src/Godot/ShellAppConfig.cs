@@ -25,7 +25,8 @@ public sealed class ShellAppConfig
         int defaultMapHeightCells,
         int chunkWidthCells,
         int chunkHeightCells,
-        float moveSpeedPxS,
+        float wasdStepsPerSecond,
+        int wasdMaxSubStepsPerPhysicsFrame,
         float zoomMin,
         float zoomMax,
         float zoomStep,
@@ -36,14 +37,17 @@ public sealed class ShellAppConfig
         int startupSeed,
         int startupLandPercent,
         int startupOriginPatchChebyshevRadius,
-        bool largeMapMode)
+        bool largeMapMode,
+        bool randomizeStartupSeed,
+        bool profileShellDraw)
     {
         CellSizePx = cellSizePx;
         DefaultMapWidthCells = defaultMapWidthCells;
         DefaultMapHeightCells = defaultMapHeightCells;
         ChunkWidthCells = chunkWidthCells;
         ChunkHeightCells = chunkHeightCells;
-        MoveSpeedPxS = moveSpeedPxS;
+        WasdStepsPerSecond = wasdStepsPerSecond;
+        WasdMaxSubStepsPerPhysicsFrame = wasdMaxSubStepsPerPhysicsFrame;
         ZoomMin = zoomMin;
         ZoomMax = zoomMax;
         ZoomStep = zoomStep;
@@ -55,6 +59,8 @@ public sealed class ShellAppConfig
         StartupLandPercent = startupLandPercent;
         StartupOriginPatchChebyshevRadius = startupOriginPatchChebyshevRadius;
         LargeMapMode = largeMapMode;
+        RandomizeStartupSeed = randomizeStartupSeed;
+        ProfileShellDraw = profileShellDraw;
     }
 
     public float CellSizePx { get; }
@@ -69,7 +75,11 @@ public sealed class ShellAppConfig
     /// <summary>Vertical map chunk size in cells (Factorio-style default 32).</summary>
     public int ChunkHeightCells { get; }
 
-    public float MoveSpeedPxS { get; }
+    /// <summary>Discrete WASD sub-tile steps per second while keys are held (<see cref="GameRoot.TickWasdDiscreteMovement"/>).</summary>
+    public float WasdStepsPerSecond { get; }
+
+    /// <summary>Upper bound on discrete WASD sub-tile steps applied in one <see cref="Godot.Node._PhysicsProcess"/> tick; config clamped to 1..48 (long-frame catch-up).</summary>
+    public int WasdMaxSubStepsPerPhysicsFrame { get; }
 
     public float ZoomMin { get; }
 
@@ -103,13 +113,23 @@ public sealed class ShellAppConfig
     /// <summary>Enables large default map dimensions and large-map safeguards in the shell.</summary>
     public bool LargeMapMode { get; }
 
+    /// <summary>
+    /// When true, procedural cold start picks a fresh session seed each launch (not written to config);
+    /// set false and use <see cref="StartupSeed"/> for reproducible maps.
+    /// </summary>
+    public bool RandomizeStartupSeed { get; }
+
+    /// <summary>When true, <see cref="GameRoot"/> logs rolling average <c>_Draw</c> time (also env SPECIALPG_PROFILE_SHELL_DRAW).</summary>
+    public bool ProfileShellDraw { get; }
+
     public static ShellAppConfig LoadOrDefault()
     {
         const float defCell = 32f;
         // Human-scale cold start (stress tests: raise in config.ini or enable large_map_mode).
         const int defW = 256;
         const int defH = 256;
-        const float defSpeed = 220f * 1.15f;
+        const float defWasdStepsPerSecond = 14f;
+        const int defWasdMaxSubStepsPerPhysicsFrame = 16;
         const float defZMin = 0.35f;
         const float defZMax = 1.75f;
         const float defZStep = 0.085f;
@@ -123,16 +143,18 @@ public sealed class ShellAppConfig
         const int defStartupLandPercent = 55;
         const int defStartupOriginPatchRadius = 2;
         const bool defLargeMapMode = false;
+        const bool defRandomizeStartupSeed = true;
+        const bool defProfileShellDraw = false;
 
         var cf = new ConfigFile();
         var err = cf.Load(Path);
         if (err != Error.Ok)
         {
             GD.Print($"[ShellAppConfig] {Path} not loaded ({err}); using defaults.");
-            return new ShellAppConfig(defCell, defW, defH, defChunkW, defChunkH, defSpeed, defZMin, defZMax, defZStep,
+            return new ShellAppConfig(defCell, defW, defH, defChunkW, defChunkH, defWasdStepsPerSecond, defWasdMaxSubStepsPerPhysicsFrame, defZMin, defZMax, defZStep,
                 defRenderScale, defMaxFps, defVsyncMode,
                 defStartupUseJsonSample, defStartupSeed, defStartupLandPercent, defStartupOriginPatchRadius,
-                defLargeMapMode);
+                defLargeMapMode, defRandomizeStartupSeed, defProfileShellDraw);
         }
 
         float F(string key, float d) =>
@@ -147,13 +169,17 @@ public sealed class ShellAppConfig
         var mapW = I("default_map_width_cells", largeMapMode ? 16384 : defW);
         var mapH = I("default_map_height_cells", largeMapMode ? 16384 : defH);
 
+        var wasdSteps = Mathf.Clamp(F("wasd_steps_per_second", defWasdStepsPerSecond), 1f, 48f);
+        var wasdMaxSubSteps = Mathf.Clamp(I("wasd_max_sub_steps_per_physics_frame", defWasdMaxSubStepsPerPhysicsFrame), 1, 48);
+
         return new ShellAppConfig(
             F("cell_size_px", defCell),
             mapW,
             mapH,
             I("chunk_width_cells", defChunkW),
             I("chunk_height_cells", defChunkH),
-            F("move_speed_px_s", defSpeed),
+            wasdSteps,
+            wasdMaxSubSteps,
             F("zoom_min", defZMin),
             F("zoom_max", defZMax),
             F("zoom_step", defZStep),
@@ -165,7 +191,9 @@ public sealed class ShellAppConfig
             Mathf.Clamp(I("startup_land_percent", defStartupLandPercent), 0, 100),
             Mathf.Clamp(I("startup_origin_patch_chebyshev_radius", defStartupOriginPatchRadius), 0,
                 MaxStartupOriginPatchChebyshevRadius),
-            largeMapMode);
+            largeMapMode,
+            B("randomize_startup_seed", defRandomizeStartupSeed),
+            B("profile_shell_draw", defProfileShellDraw));
     }
 
     public static Error SaveRuntimeShellSettings(

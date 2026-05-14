@@ -124,6 +124,7 @@ public static class ProceduralWorldMapGenerator
         OriginWalkabilityPatch.ApplyToBoundedWorld(map, originPatchChebyshevRadius, stairX, stairY);
         OriginWalkabilityPatch.ApplyToBoundedWorld(map, originPatchChebyshevRadius, 0, 0);
         LandmassBridgeToLargestComponent.ApplyToBoundedWorld(map);
+        ForceLandWalkMargin.ApplyToBoundedWorld(map);
         return map;
     }
 

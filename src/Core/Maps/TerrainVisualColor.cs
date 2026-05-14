@@ -54,7 +54,18 @@ public static class TerrainVisualColor
         ArgumentNullException.ThrowIfNull(evaluator);
 
         if (tile.Override == TerrainOverride.ForceLand)
-            return Land;
+        {
+            var s = evaluator.EvaluateAt(worldX, worldY);
+            if (evaluator.IsWater(s))
+            {
+                var span = Math.Max(1e-4f, terrain.WaterElevationThreshold - (-1f));
+                var t = Clamp01((terrain.WaterElevationThreshold - s.Elevation) / span);
+                return LerpRgb(LerpRgb(CoastSand, Land, 0.55f), WaterShallow, t * 0.22f);
+            }
+
+            var blended = FromEvaluator(worldX, worldY, evaluator, terrain);
+            return LerpRgb(blended, Land, 0.22f);
+        }
         if (tile.Override == TerrainOverride.ForceWater)
             return WaterDeep;
         if ((tile.Flags & TileFlags.Blocked) != 0 && !TileTraversal.IsWaterSurface(tile, terrain))
@@ -104,7 +115,12 @@ public static class TerrainVisualColor
         ArgumentNullException.ThrowIfNull(evaluator);
 
         if (tile.Override == TerrainOverride.ForceLand)
+        {
+            var s = evaluator.EvaluateAt(worldX, worldY);
+            if (evaluator.IsWater(s))
+                return "Forced land (coast blend)";
             return "Forced land (override)";
+        }
         if (tile.Override == TerrainOverride.ForceWater)
             return "Forced water (override)";
         if ((tile.Flags & TileFlags.Blocked) != 0 && !TileTraversal.IsWaterSurface(tile, terrain))

@@ -79,6 +79,28 @@ Godot **.NET** can reload or rebuild game assemblies in the editor in ways that 
 
 The **External Debug Attach** addon under [`src/Godot/addons/external_debug_attach`](../src/Godot/addons/external_debug_attach) keeps its **editor plugin** in **GDScript** partly to reduce C# assembly reload friction in the **plugin** itself. See the addon’s README for that workflow; it complements manual attach from Cursor.
 
+## Profiling shell terrain redraw (movement jitter)
+
+[`GameRoot`](../src/Godot/GameRoot.cs) repaints visible terrain + grid when the **visible global cell window**, **active floor**, or **zoom** changes; sub-tile camera motion alone does not force a full `_Draw` (see shell changelog REV 37). **REV 44:** the cell window is compared to the **last redraw** using **expansion only** (new min/max must go past the previous min/max). Smooth camera motion can make floored corners **toggle ±1 cell** without the viewport actually needing new columns; strict inequality used to `QueueRedraw` every tick and re-sample continuous elevation (hill/coast tints), which reads as **light/dark flicker**. Reset still happens on floor/map replace via `MarkShellViewDirty`.
+
+**Godot editor:** **Debugger → Monitors** — watch **Process → Frame Time**, **Canvas Item → Canvas Item Drawn in Frame**, and redraw-related counters while holding WASD.
+
+**Rolling average from the shell:** in [`config.ini`](../src/Godot/config.ini) under **`[shell]`**, set **`profile_shell_draw=true`**, or set process environment **`SPECIALPG_PROFILE_SHELL_DRAW=1`** (or `true`) before starting the game. After ~90 `_Draw` calls, the console prints average milliseconds per draw (terrain + grid). Prefer **`profile_shell_draw`** when launching from the editor so you do not depend on inherited env vars.
+
+**HUD perf line:** The upper-right **`… ms/frame (from FPS)`** value is `1000 / ShellFps` (implied frame time from the smoothed FPS counter), **not** the terrain `_Draw` average. When profiling is on and at least one rolling average has been computed, the same label also shows **`Draw … ms avg (terrain+grid)`** from [`GameRoot`](../src/Godot/GameRoot.cs) (same metric as the console log).
+**If numbers are high:** the next architectural step is to **split static terrain from per-frame work** (for example rasterize visible terrain to a texture or `SubViewportTexture` when the culled cell range changes, and scroll that texture with the camera).
+
+## Movement tuning (WASD + physics cadence)
+
+- **Discrete speed:** [`wasd_steps_per_second`](../src/Godot/config.ini) in **`[shell]`** — sub-tile steps applied per second while keys are held (see [`GameRoot.TickWasdDiscreteMovement`](../src/Godot/GameRoot.cs)).
+- **Burst cap:** **`wasd_max_sub_steps_per_physics_frame`** (default **16**, clamped **1–48**) limits how many steps can run in a single physics tick when the frame is long, reducing visible “teleport” pops.
+- **Visual smoothing:** [`ShellPlayer`](../src/Godot/ShellPlayer.cs) moves the marker/camera path in `_Process` toward the Core foot target set in `_PhysicsProcess`; grid truth stays in Core via **`AuthoritativeFootWorld`**.
+- **Physics vs display:** WASD stepping runs in **`_PhysicsProcess`**. If movement feels uneven at high refresh rates, confirm **Project Settings → Physics → Common → Physics Ticks Per Second** (default **60**) and compare with your monitor refresh; see also [`architecture.md`](architecture.md) shell tuning paragraph.
+
+### WASD blocked near forced-land coasts (patch / bridge edges)
+
+Procedural maps apply [`OriginWalkabilityPatch`](../src/Core/Maps/OriginWalkabilityPatch.cs) and [`LandmassBridgeToLargestComponent`](../src/Core/Maps/LandmassBridgeToLargestComponent.cs), then [`ForceLandWalkMargin`](../src/Core/Maps/ForceLandWalkMargin.cs) expands `ForceLand` by **one 4-connected ring** so the next sub-step off a synthetic land tongue is not still classified as noise water. If a step is rejected, [`GameRoot`](../src/Godot/GameRoot.cs) logs a throttled line with [`SubTileTraversal.DiagnoseUnwalkable`](../src/Core/Maps/SubTileTraversal.cs) (for example `sub-tile noise water at world(...)`). Regenerate the map after changing this pipeline.
+
 ## Related
 
 - [README.md](../README.md) — build, tasks, short pointer here

@@ -7,7 +7,7 @@ namespace SpecialPG.Core.Tests;
 public class TerrainVisualColorTests
 {
     [Fact]
-    public void ForceLand_skips_evaluator_water()
+    public void ForceLand_blends_coast_when_noise_sample_would_be_water()
     {
         var cfg = TerrainNoiseConfig.Default(1);
         var eval = new TerrainEvaluator(cfg);
@@ -19,7 +19,7 @@ public class TerrainVisualColorTests
         };
 
         var rgb = TerrainVisualColor.AtWorld(0f, 0f, tile, eval, cfg);
-        Assert.True(rgb.G > rgb.B * 0.9f, "Expected land-green dominance.");
+        Assert.True(rgb.G > rgb.B * 0.9f, "Expected land-green dominance with softened coast blend.");
     }
 
     [Fact]
