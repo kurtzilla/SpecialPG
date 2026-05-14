@@ -230,6 +230,57 @@ custom_minimum_size = Vector2(200, 28)
 theme_override_font_sizes/font_size = 16
 text = "Smooth 60"
 
+[node name="MovementPresetPanel" type="PanelContainer" parent="ShellUi/ShellHudRoot/RightPresetStack/PresetPanelRoot/Margin/VBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+mouse_filter = 0
+
+[node name="Margin" type="MarginContainer" parent="ShellUi/ShellHudRoot/RightPresetStack/PresetPanelRoot/Margin/VBox/MovementPresetPanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 7
+theme_override_constants/margin_top = 5
+theme_override_constants/margin_right = 7
+theme_override_constants/margin_bottom = 5
+
+[node name="VBox" type="VBoxContainer" parent="ShellUi/ShellHudRoot/RightPresetStack/PresetPanelRoot/Margin/VBox/MovementPresetPanel/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="MovementPresetTitle" type="Label" parent="ShellUi/ShellHudRoot/RightPresetStack/PresetPanelRoot/Margin/VBox/MovementPresetPanel/Margin/VBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 14
+text = "Movement"
+
+[node name="MovementHintLabel" type="Label" parent="ShellUi/ShellHudRoot/RightPresetStack/PresetPanelRoot/Margin/VBox/MovementPresetPanel/Margin/VBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 12
+theme_override_colors/font_color = Color(0.75, 0.78, 0.82, 1)
+text = "Applies immediately; saved to config.ini"
+
+[node name="HudWasdStepsLabel" type="Label" parent="ShellUi/ShellHudRoot/RightPresetStack/PresetPanelRoot/Margin/VBox/MovementPresetPanel/Margin/VBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 14
+text = "WASD steps / second"
+
+[node name="HudWasdStepsSlider" type="HSlider" parent="ShellUi/ShellHudRoot/RightPresetStack/PresetPanelRoot/Margin/VBox/MovementPresetPanel/Margin/VBox"]
+layout_mode = 2
+min_value = 1.0
+max_value = 1024.0
+step = 1.0
+value = 14.0
+
+[node name="HudWasdBurstLabel" type="Label" parent="ShellUi/ShellHudRoot/RightPresetStack/PresetPanelRoot/Margin/VBox/MovementPresetPanel/Margin/VBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 14
+text = "Max steps per physics tick"
+
+[node name="HudWasdBurstSlider" type="HSlider" parent="ShellUi/ShellHudRoot/RightPresetStack/PresetPanelRoot/Margin/VBox/MovementPresetPanel/Margin/VBox"]
+layout_mode = 2
+min_value = 1.0
+max_value = 256.0
+step = 1.0
+value = 16.0
+
 [node name="MapPresetPanel" type="PanelContainer" parent="ShellUi/ShellHudRoot/RightPresetStack/PresetPanelRoot/Margin/VBox"]
 layout_mode = 2
 size_flags_horizontal = 3

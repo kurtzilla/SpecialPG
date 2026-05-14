@@ -1,7 +1,7 @@
 ﻿# Shell Feature Revision Log
 
-Revision: 44
-TimestampUtc: 2026-05-14T21:26:32.6979170Z
+Revision: 47
+TimestampUtc: 2026-05-14T21:56:34.1041208Z
 
 Highlights:
 - config.ini shell tuning; Camera2D + discrete WASD sub-tile steps; zoom (wheel, =/-, keypad); upper-right world XY (2 decimals).
@@ -36,7 +36,10 @@ Highlights:
 - REV 38: WASD no longer QueueRedraw/MarkShellViewDirty each sub-step (cell gate effective); wasd_steps_per_second in config.ini.
 - REV 39: ShellPlayer smooths visual foot toward Core target; wasd_max_sub_steps_per_physics_frame; Core sync uses AuthoritativeFootWorld.
 - REV 40: Removed move_speed_px_s / MoveSpeedPxS (unused); discrete speed remains wasd_steps_per_second only.
-- REV 41: Grid lines use antialiased strokes, no canvas snap (aligns with terrain); softer chunk vs cell stroke ratio; wasd_max_sub_steps default 16 clamp 1..48.
+- REV 41: Grid lines use antialiased strokes, no canvas snap (aligns with terrain); softer chunk vs cell stroke ratio; wasd_max_sub_steps default 16 (clamp raised in REV 45).
 - REV 42: Thinner tile grid strokes + lower zoom floor so chunk boundaries read clearly vs cell edges.
 - REV 43: ForceLandWalkMargin after origin patch + land bridge; HUD ms/frame vs optional Draw avg; softer ForceLand terrain tint.
 - REV 44: Terrain QueueRedraw only when cull window expands past last draw (smooth camera ±1 cell chatter).
+- REV 45: WASD clamps 1..512 steps/s and 1..128 burst; max_land_bridge_cells + spawn on LCC when origin is a small island.
+- REV 46: Runtime WASD tuning (no restart); ceilings 1024/256; PersistWasdMovementSettings to config.ini.
+- REV 47: WASD speed sliders on right preset stack (in-game) instead of pause menu.

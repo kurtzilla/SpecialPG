@@ -244,7 +244,7 @@ public partial class MapWorkbenchPanel : Control
         const int previewSide = 128;
         var previewMin = -(previewSide / 2);
         var previewMap = ProceduralWorldMapGenerator.BuildBoundedWorld(previewSide, previewSide, 32, 32, p,
-            previewMin, previewMin, originR);
+            previewMin, previewMin, originR, _gameRoot.ShellMaxLandBridgeCells);
         _previewRect.Texture =
             MapPreviewRasterizer.RasterizeFloor(previewMap.GetOrCreateFloor(0), previewMap.TerrainConfig);
     }
@@ -268,7 +268,8 @@ public partial class MapWorkbenchPanel : Control
             p,
             minX: -(w / 2),
             minY: -(h / 2),
-            originPatchChebyshevRadius: originR);
+            originPatchChebyshevRadius: originR,
+            maxLandBridgeCells: _gameRoot.ShellMaxLandBridgeCells);
 
         _gameRoot.ApplyMapFromWorkbench(map, p, originR);
         CloseWorkbench();

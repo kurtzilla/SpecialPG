@@ -84,4 +84,85 @@ public class LandmassBridgeToLargestComponentTests
         Assert.Equal(before.Override, after.Override);
         Assert.Equal(before.Flags, after.Flags);
     }
+
+    [Fact]
+    public void Apply_skips_long_bridge_when_max_Manhattan_exceeded()
+    {
+        var map = new WorldMap(20, 20, 8, 8, 0, 0);
+        map.TerrainConfig = TerrainNoiseConfig.Default(99);
+        var floor = map.GetOrCreateFloor(0);
+        for (var gy = 0; gy < 20; gy++)
+        {
+            for (var gx = 0; gx < 20; gx++)
+                floor.Set(gx, gy, TileCell.SyntheticWater());
+        }
+
+        floor.Set(0, 0, TileCell.SyntheticLand(0));
+        for (var gy = 17; gy < 20; gy++)
+        {
+            for (var gx = 17; gx < 20; gx++)
+                floor.Set(gx, gy, TileCell.SyntheticLand(0));
+        }
+
+        LandmassBridgeToLargestComponent.ApplyToFloor(floor, map.TerrainConfig, maxLandBridgeManhattanCells: 10);
+
+        var cfg = map.TerrainConfig;
+        Assert.False(TileTraversal.IsWalkable(floor.Get(1, 0), cfg));
+        Assert.False(TileTraversal.IsWalkable(floor.Get(0, 1), cfg));
+    }
+
+    [Fact]
+    public void Apply_connects_when_max_is_zero_unlimited()
+    {
+        var map = new WorldMap(20, 20, 8, 8, 0, 0);
+        map.TerrainConfig = TerrainNoiseConfig.Default(100);
+        var floor = map.GetOrCreateFloor(0);
+        for (var gy = 0; gy < 20; gy++)
+        {
+            for (var gx = 0; gx < 20; gx++)
+                floor.Set(gx, gy, TileCell.SyntheticWater());
+        }
+
+        floor.Set(0, 0, TileCell.SyntheticLand(0));
+        for (var gy = 17; gy < 20; gy++)
+        {
+            for (var gx = 17; gx < 20; gx++)
+                floor.Set(gx, gy, TileCell.SyntheticLand(0));
+        }
+
+        LandmassBridgeToLargestComponent.ApplyToFloor(floor, map.TerrainConfig, maxLandBridgeManhattanCells: 0);
+
+        var cfg = map.TerrainConfig;
+        var seen = new bool[20, 20];
+        var q = new Queue<(int X, int Y)>();
+        q.Enqueue((0, 0));
+        seen[0, 0] = true;
+        var reachedBig = false;
+        while (q.Count > 0)
+        {
+            var (x, y) = q.Dequeue();
+            if (x >= 17 && y >= 17)
+            {
+                reachedBig = true;
+                break;
+            }
+
+            Try(x - 1, y);
+            Try(x + 1, y);
+            Try(x, y - 1);
+            Try(x, y + 1);
+
+            void Try(int nx, int ny)
+            {
+                if ((uint)nx >= 20u || (uint)ny >= 20u || seen[nx, ny])
+                    return;
+                if (!TileTraversal.IsWalkable(floor.Get(nx, ny), cfg))
+                    return;
+                seen[nx, ny] = true;
+                q.Enqueue((nx, ny));
+            }
+        }
+
+        Assert.True(reachedBig);
+    }
 }

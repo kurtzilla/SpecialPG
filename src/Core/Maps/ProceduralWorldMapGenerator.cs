@@ -17,7 +17,7 @@ public static class ProceduralWorldMapGenerator
     public static WorldMap BuildBoundedWorld(int width, int height, int chunkWidth, int chunkHeight, int seed,
         int minX = 0, int minY = 0) =>
         BuildBoundedWorld(width, height, chunkWidth, chunkHeight, MapGenerationParameters.FromSeedOnly(seed), minX, minY,
-            OriginWalkabilityPatch.DefaultChebyshevRadius);
+            OriginWalkabilityPatch.DefaultChebyshevRadius, maxLandBridgeCells: 0);
 
     /// <summary>
     /// Builds a rectangular world with floors Z=0 and Z=1, filled tile-by-chunk using noise.
@@ -29,9 +29,11 @@ public static class ProceduralWorldMapGenerator
     /// (stairs anchor) and again at global (0,0); see <see cref="OriginWalkabilityPatch"/> and
     /// <see cref="LandmassBridgeToLargestComponent"/>.
     /// </param>
+    /// <param name="maxLandBridgeCells">Passed to <see cref="LandmassBridgeToLargestComponent"/>; <c>0</c> = unlimited.</param>
     public static WorldMap BuildBoundedWorld(int width, int height, int chunkWidth, int chunkHeight,
         MapGenerationParameters parameters, int minX = 0, int minY = 0,
-        int originPatchChebyshevRadius = OriginWalkabilityPatch.DefaultChebyshevRadius)
+        int originPatchChebyshevRadius = OriginWalkabilityPatch.DefaultChebyshevRadius,
+        int maxLandBridgeCells = 0)
     {
         if (!parameters.IsValid)
             throw new ArgumentException("MapGenerationParameters must have LandPercent + WaterPercent = 100.", nameof(parameters));
@@ -123,7 +125,7 @@ public static class ProceduralWorldMapGenerator
 
         OriginWalkabilityPatch.ApplyToBoundedWorld(map, originPatchChebyshevRadius, stairX, stairY);
         OriginWalkabilityPatch.ApplyToBoundedWorld(map, originPatchChebyshevRadius, 0, 0);
-        LandmassBridgeToLargestComponent.ApplyToBoundedWorld(map);
+        LandmassBridgeToLargestComponent.ApplyToBoundedWorld(map, maxLandBridgeCells);
         ForceLandWalkMargin.ApplyToBoundedWorld(map);
         return map;
     }

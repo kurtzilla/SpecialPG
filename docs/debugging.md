@@ -92,14 +92,14 @@ The **External Debug Attach** addon under [`src/Godot/addons/external_debug_atta
 
 ## Movement tuning (WASD + physics cadence)
 
-- **Discrete speed:** [`wasd_steps_per_second`](../src/Godot/config.ini) in **`[shell]`** — sub-tile steps applied per second while keys are held (see [`GameRoot.TickWasdDiscreteMovement`](../src/Godot/GameRoot.cs)).
-- **Burst cap:** **`wasd_max_sub_steps_per_physics_frame`** (default **16**, clamped **1–48**) limits how many steps can run in a single physics tick when the frame is long, reducing visible “teleport” pops.
+- **Discrete speed:** [`wasd_steps_per_second`](../src/Godot/config.ini) in **`[shell]`** — sub-tile steps applied per second while keys are held (see [`GameRoot.TickWasdDiscreteMovement`](../src/Godot/GameRoot.cs)); clamped **1..1024** (see [`ShellAppConfig`](../src/Godot/ShellAppConfig.cs)). The **Movement** panel on the right HUD preset stack can change this live; values are also written to `config.ini`. Approximate pixels per second along an axis: `wasd_steps_per_second × (cell_size_px / 16)` (16 sub-cells per tile).
+- **Burst cap:** **`wasd_max_sub_steps_per_physics_frame`** (default **16**, clamped **1..256**) limits how many steps can run in a single physics tick when the frame is long, reducing visible “teleport” pops; raise it when using a high `wasd_steps_per_second` so long frames still drain step debt.
 - **Visual smoothing:** [`ShellPlayer`](../src/Godot/ShellPlayer.cs) moves the marker/camera path in `_Process` toward the Core foot target set in `_PhysicsProcess`; grid truth stays in Core via **`AuthoritativeFootWorld`**.
 - **Physics vs display:** WASD stepping runs in **`_PhysicsProcess`**. If movement feels uneven at high refresh rates, confirm **Project Settings → Physics → Common → Physics Ticks Per Second** (default **60**) and compare with your monitor refresh; see also [`architecture.md`](architecture.md) shell tuning paragraph.
 
 ### WASD blocked near forced-land coasts (patch / bridge edges)
 
-Procedural maps apply [`OriginWalkabilityPatch`](../src/Core/Maps/OriginWalkabilityPatch.cs) and [`LandmassBridgeToLargestComponent`](../src/Core/Maps/LandmassBridgeToLargestComponent.cs), then [`ForceLandWalkMargin`](../src/Core/Maps/ForceLandWalkMargin.cs) expands `ForceLand` by **one 4-connected ring** so the next sub-step off a synthetic land tongue is not still classified as noise water. If a step is rejected, [`GameRoot`](../src/Godot/GameRoot.cs) logs a throttled line with [`SubTileTraversal.DiagnoseUnwalkable`](../src/Core/Maps/SubTileTraversal.cs) (for example `sub-tile noise water at world(...)`). Regenerate the map after changing this pipeline.
+Procedural maps apply [`OriginWalkabilityPatch`](../src/Core/Maps/OriginWalkabilityPatch.cs) and [`LandmassBridgeToLargestComponent`](../src/Core/Maps/LandmassBridgeToLargestComponent.cs) (optional `max_land_bridge_cells` in [`config.ini`](../src/Godot/config.ini) caps the bridge length; **0** = unlimited), then [`ForceLandWalkMargin`](../src/Core/Maps/ForceLandWalkMargin.cs) expands `ForceLand` by **one 4-connected ring** so the next sub-step off a synthetic land tongue is not still classified as noise water. If a step is rejected, [`GameRoot`](../src/Godot/GameRoot.cs) logs a throttled line with [`SubTileTraversal.DiagnoseUnwalkable`](../src/Core/Maps/SubTileTraversal.cs) (for example `sub-tile noise water at world(...)`). Regenerate the map after changing this pipeline.
 
 ## Related
 

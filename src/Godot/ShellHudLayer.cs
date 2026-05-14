@@ -37,6 +37,9 @@ public partial class ShellHudLayer : Control
     private Button _mapGenBtn = null!;
     private Button _mapEditorBtn = null!;
     private MapWorkbenchPanel _mapWorkbench = null!;
+    private HSlider _hudWasdStepsSlider = null!;
+    private HSlider _hudWasdBurstSlider = null!;
+    private bool _hudWasdSliderQuiet;
     private Label _mapLandWaterLabel = null!;
     private HSlider _landPctSlider = null!;
     private SpinBox _mapSeedSpinBox = null!;
@@ -84,6 +87,13 @@ public partial class ShellHudLayer : Control
         _mapEditorBtn = GetNode<Button>("PauseMenuRoot/Center/MenuPanel/Margin/VBox/PauseMapEditorButton");
         _mapGenBtn.Pressed += OnMapGeneratorPressed;
         _mapEditorBtn.Pressed += OnMapEditorPressed;
+
+        _hudWasdStepsSlider = GetNode<HSlider>(
+            "RightPresetStack/PresetPanelRoot/Margin/VBox/MovementPresetPanel/Margin/VBox/HudWasdStepsSlider");
+        _hudWasdBurstSlider = GetNode<HSlider>(
+            "RightPresetStack/PresetPanelRoot/Margin/VBox/MovementPresetPanel/Margin/VBox/HudWasdBurstSlider");
+        _hudWasdStepsSlider.ValueChanged += OnHudWasdStepsSliderChanged;
+        _hudWasdBurstSlider.ValueChanged += OnHudWasdBurstSliderChanged;
 
         _mapLandWaterLabel = GetNode<Label>("RightPresetStack/PresetPanelRoot/Margin/VBox/MapPresetPanel/Margin/VBox/MapLandWaterLabel");
         _landPctSlider = GetNode<HSlider>("RightPresetStack/PresetPanelRoot/Margin/VBox/MapPresetPanel/Margin/VBox/LandPercentSlider");
@@ -180,6 +190,31 @@ public partial class ShellHudLayer : Control
         _startAreaPatchLabel.Modulate = canEdit ? Colors.White : new Color(0.65f, 0.65f, 0.68f);
     }
 
+    /// <summary>Syncs movement sliders with <see cref="GameRoot"/> (after bootstrap or when runtime WASD may have changed).</summary>
+    public void SyncWasdMovementSlidersFromGameRoot()
+    {
+        _gridRoot ??= GetTree().CurrentScene?.GetNodeOrNull<GameRoot>("GridMap");
+        _hudWasdSliderQuiet = true;
+        try
+        {
+            _hudWasdStepsSlider.MinValue = 1;
+            _hudWasdStepsSlider.MaxValue = ShellAppConfig.MaxWasdStepsPerSecond;
+            _hudWasdStepsSlider.Step = 1;
+            _hudWasdBurstSlider.MinValue = 1;
+            _hudWasdBurstSlider.MaxValue = ShellAppConfig.MaxWasdSubStepsPerPhysicsFrame;
+            _hudWasdBurstSlider.Step = 1;
+            if (_gridRoot is not null)
+            {
+                _hudWasdStepsSlider.Value = _gridRoot.ShellRuntimeWasdStepsPerSecond;
+                _hudWasdBurstSlider.Value = _gridRoot.ShellRuntimeWasdMaxSubStepsPerPhysicsFrame;
+            }
+        }
+        finally
+        {
+            _hudWasdSliderQuiet = false;
+        }
+    }
+
     private void DeferredSyncMapPresetFromGameRoot()
     {
         _gridRoot ??= GetTree().CurrentScene?.GetNodeOrNull<GameRoot>("GridMap");
@@ -190,6 +225,7 @@ public partial class ShellHudLayer : Control
 
         SyncMapPresetUi(_gridRoot.ShellEffectiveLandPercent, _gridRoot.ShellEffectiveSeed,
             _gridRoot.ShellEffectiveOriginPatchChebyshevRadius, _gridRoot.ShellCanApplyLandPercentPreset);
+        SyncWasdMovementSlidersFromGameRoot();
     }
 
     private void PopulateTerrainLegend()
@@ -361,6 +397,33 @@ public partial class ShellHudLayer : Control
         RefreshMapMenuButtons();
         var resume = GetNode<Button>("PauseMenuRoot/Center/MenuPanel/Margin/VBox/PauseResumeButton");
         resume.GrabFocus();
+    }
+
+    private void OnHudWasdStepsSliderChanged(double _)
+    {
+        if (_hudWasdSliderQuiet)
+        {
+            return;
+        }
+
+        ApplyHudWasdFromSliders();
+    }
+
+    private void OnHudWasdBurstSliderChanged(double _)
+    {
+        if (_hudWasdSliderQuiet)
+        {
+            return;
+        }
+
+        ApplyHudWasdFromSliders();
+    }
+
+    private void ApplyHudWasdFromSliders()
+    {
+        _gridRoot ??= GetTree().CurrentScene?.GetNodeOrNull<GameRoot>("GridMap");
+        _gridRoot?.ApplyWasdMovementRuntime((float)_hudWasdStepsSlider.Value,
+            Mathf.RoundToInt((float)_hudWasdBurstSlider.Value), persistToConfig: true);
     }
 
     private void RefreshMapMenuButtons()

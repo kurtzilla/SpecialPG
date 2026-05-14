@@ -67,4 +67,28 @@ public class LandmassSpawnSupportTests
             out _, out _);
         Assert.False(ok);
     }
+
+    [Fact]
+    public void IsWalkableOnLargestLandmass_false_on_small_island()
+    {
+        var map = new WorldMap(7, 7, 8, 8, 0, 0);
+        map.TerrainConfig = TerrainNoiseConfig.Default(2);
+        var floor = map.GetOrCreateFloor(0);
+        for (var gy = 0; gy < 7; gy++)
+        {
+            for (var gx = 0; gx < 7; gx++)
+                floor.Set(gx, gy, TileCell.SyntheticWater());
+        }
+
+        for (var gy = 0; gy < 7; gy++)
+        {
+            for (var gx = 0; gx <= 2; gx++)
+                floor.Set(gx, gy, ForceLand);
+        }
+
+        floor.Set(6, 6, ForceLand);
+
+        Assert.False(LandmassSpawnSupport.IsWalkableOnLargestLandmass(floor, map.TerrainConfig, 6, 6));
+        Assert.True(LandmassSpawnSupport.IsWalkableOnLargestLandmass(floor, map.TerrainConfig, 1, 1));
+    }
 }

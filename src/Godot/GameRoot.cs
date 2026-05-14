@@ -13,13 +13,13 @@ using CoreTileCell = SpecialPG.Core.Maps.TileCell;
 /// Shell entry: owns the scene tree branch that will drive rendering and input; reads Core types only via normal C# references.
 /// Actor pose and move rules live in <see cref="WorldState"/>.
 /// </summary>
-public partial class GameRoot : Node2D
+public partial class GameRoot : Node2D, IWasdMovementRates
 {
     private const string SampleMapPath = "res://maps/sample_twofloor.json";
     private const string ShellRevisionLogPath = "res://../../docs/shell-feature-revision-log.md";
 
     /// <summary>Bump when you add user-visible shell behavior; add a line to <see cref="ShellFeatureChangelogLines"/>.</summary>
-    private const int ShellFeatureRevision = 44;
+    private const int ShellFeatureRevision = 47;
 
     private const int StartupZoomNudgeFloorCellSpan = 512;
 
@@ -57,10 +57,13 @@ public partial class GameRoot : Node2D
         "REV 38: WASD no longer QueueRedraw/MarkShellViewDirty each sub-step (cell gate effective); wasd_steps_per_second in config.ini.",
         "REV 39: ShellPlayer smooths visual foot toward Core target; wasd_max_sub_steps_per_physics_frame; Core sync uses AuthoritativeFootWorld.",
         "REV 40: Removed move_speed_px_s / MoveSpeedPxS (unused); discrete speed remains wasd_steps_per_second only.",
-        "REV 41: Grid lines use antialiased strokes, no canvas snap (aligns with terrain); softer chunk vs cell stroke ratio; wasd_max_sub_steps default 16 clamp 1..48.",
+        "REV 41: Grid lines use antialiased strokes, no canvas snap (aligns with terrain); softer chunk vs cell stroke ratio; wasd_max_sub_steps default 16 (clamp raised in REV 45).",
         "REV 42: Thinner tile grid strokes + lower zoom floor so chunk boundaries read clearly vs cell edges.",
         "REV 43: ForceLandWalkMargin after origin patch + land bridge; HUD ms/frame vs optional Draw avg; softer ForceLand terrain tint.",
         "REV 44: Terrain QueueRedraw only when cull window expands past last draw (smooth camera ±1 cell chatter).",
+        "REV 45: WASD clamps 1..512 steps/s and 1..128 burst; max_land_bridge_cells + spawn on LCC when origin is a small island.",
+        "REV 46: Runtime WASD tuning (no restart); ceilings 1024/256; PersistWasdMovementSettings to config.ini.",
+        "REV 47: WASD speed sliders on right preset stack (in-game) instead of pause menu.",
     };
 
     private static readonly Color GridLineColor = new(0.085f, 0.09f, 0.105f, 0.81f);
@@ -69,6 +72,8 @@ public partial class GameRoot : Node2D
     private const int TerrainContourSubdivisions = 1;
 
     private ShellAppConfig _shell = null!;
+    private float _runtimeWasdStepsPerSecond;
+    private int _runtimeWasdMaxSubStepsPerPhysicsFrame;
     private float _cellSizePx = 32f;
     private float _activeRenderScale = 1.0f;
     private int _activeMaxFps;
@@ -141,9 +146,21 @@ public partial class GameRoot : Node2D
 
     public int ShellChunkHeightCells => _shell.ChunkHeightCells;
 
-    public SessionMapOrigin ShellSessionMapOrigin => _sessionMapOrigin;
+    public int ShellMaxLandBridgeCells => _shell.MaxLandBridgeCells;
+
+    /// <summary>Active discrete WASD steps per second (runtime; right HUD Movement panel / <see cref="ApplyWasdMovementRuntime"/>).</summary>
+    public float ShellRuntimeWasdStepsPerSecond => _runtimeWasdStepsPerSecond;
+
+    /// <summary>Active max sub-tile steps per physics tick (runtime).</summary>
+    public int ShellRuntimeWasdMaxSubStepsPerPhysicsFrame => _runtimeWasdMaxSubStepsPerPhysicsFrame;
+
+    float IWasdMovementRates.StepsPerSecond => _runtimeWasdStepsPerSecond;
+
+    int IWasdMovementRates.MaxSubStepsPerPhysicsFrame => _runtimeWasdMaxSubStepsPerPhysicsFrame;
 
     public MapGenerationParameters? ShellCommittedGenerationParameters => _committedGenerationParameters;
+
+    public SessionMapOrigin ShellSessionMapOrigin => _sessionMapOrigin;
 
     /// <summary>Land %% target for the active procedural session (committed parameters or config).</summary>
     public int ShellEffectiveLandPercent =>
@@ -248,10 +265,36 @@ public partial class GameRoot : Node2D
 
     public IReadOnlyList<Vector2I> ShellDebugPlaceholderPath => _debugPlaceholderPath;
 
+    /// <summary>Clamp and apply discrete WASD rates immediately; optionally persist to <c>config.ini</c>.</summary>
+    public void ApplyWasdMovementRuntime(float stepsPerSecond, int maxSubStepsPerPhysicsFrame, bool persistToConfig = true)
+    {
+        _runtimeWasdStepsPerSecond = ShellAppConfig.ClampWasdStepsPerSecond(stepsPerSecond);
+        _runtimeWasdMaxSubStepsPerPhysicsFrame = ShellAppConfig.ClampWasdMaxSubStepsPerPhysicsFrame(maxSubStepsPerPhysicsFrame);
+        if (persistToConfig)
+        {
+            var err = ShellAppConfig.PersistWasdMovementSettings(_runtimeWasdStepsPerSecond,
+                _runtimeWasdMaxSubStepsPerPhysicsFrame);
+            if (err != Error.Ok)
+            {
+                GD.PushWarning($"[GameRoot] Persist WASD movement settings failed: {err}");
+            }
+        }
+
+        GD.Print(
+            $"[GameRoot] WASD runtime steps/s={_runtimeWasdStepsPerSecond:F0}, max_sub_steps={_runtimeWasdMaxSubStepsPerPhysicsFrame}.");
+    }
+
+    private void SyncRuntimeWasdFromShell()
+    {
+        _runtimeWasdStepsPerSecond = _shell.WasdStepsPerSecond;
+        _runtimeWasdMaxSubStepsPerPhysicsFrame = _shell.WasdMaxSubStepsPerPhysicsFrame;
+    }
+
     public override void _Ready()
     {
         _shell = ShellAppConfig.LoadOrDefault();
         _cellSizePx = _shell.CellSizePx;
+        SyncRuntimeWasdFromShell();
         EnsureUiCancelBinding();
         InitShellDrawProfiling();
 
@@ -336,7 +379,8 @@ public partial class GameRoot : Node2D
                 parameters,
                 minX: procMinX,
                 minY: procMinY,
-                originPatchChebyshevRadius: originR);
+                originPatchChebyshevRadius: originR,
+                maxLandBridgeCells: _shell.MaxLandBridgeCells);
             _committedGenerationParameters = parameters;
             _sessionMapOrigin = SessionMapOrigin.ProceduralColdStart;
             var seedNote = _shell.RandomizeStartupSeed ? "session seed (randomize_startup_seed)" : "startup_seed";
@@ -409,6 +453,7 @@ public partial class GameRoot : Node2D
         }
 
         _shell = ShellAppConfig.LoadOrDefault();
+        SyncRuntimeWasdFromShell();
 
         var parameters = MapGenerationParameters.Create(seed, landPercent);
         _committedOriginPatchChebyshevRadius = originPatchChebyshevRadius;
@@ -421,7 +466,8 @@ public partial class GameRoot : Node2D
             parameters,
             minX: procMinX,
             minY: procMinY,
-            originPatchChebyshevRadius: originPatchChebyshevRadius);
+            originPatchChebyshevRadius: originPatchChebyshevRadius,
+            maxLandBridgeCells: _shell.MaxLandBridgeCells);
 
         _committedGenerationParameters = parameters;
         var preservedOrigin = _sessionMapOrigin;
@@ -475,8 +521,12 @@ public partial class GameRoot : Node2D
         originGx = Mathf.Clamp(0, floor0.MinX, floor0.MinX + floor0.Width - 1);
         originGy = Mathf.Clamp(0, floor0.MinY, floor0.MinY + floor0.Height - 1);
         var terrainCfg = _world.Map.TerrainConfig;
-        if (TileTraversal.IsWalkable(floor0.Get(originGx, originGy), terrainCfg) &&
-            IsSubTileSpawnViable(_world.Map, _world.ActorZ, originGx, originGy, _world.TerrainEvaluator))
+        var originWalkable = TileTraversal.IsWalkable(floor0.Get(originGx, originGy), terrainCfg);
+        var subTileViable =
+            IsSubTileSpawnViable(_world.Map, _world.ActorZ, originGx, originGy, _world.TerrainEvaluator);
+        var onLargestLandmass = LandmassSpawnSupport.IsWalkableOnLargestLandmass(floor0, terrainCfg, originGx, originGy);
+
+        if (originWalkable && subTileViable && onLargestLandmass)
         {
             _world.SetActorCellFromShell(originGx, originGy, _world.ActorZ);
         }
@@ -491,8 +541,17 @@ public partial class GameRoot : Node2D
             }
             else
             {
-                GD.Print(
-                    $"[GameRoot] Origin ({originGx},{originGy}) not viable; spawned on largest landmass near center at ({walkGx},{walkGy}).");
+                if (originWalkable && subTileViable && !onLargestLandmass)
+                {
+                    GD.Print(
+                        $"[GameRoot] Origin ({originGx},{originGy}) walkable but not on largest landmass; spawned on LCC near center at ({walkGx},{walkGy}).");
+                }
+                else
+                {
+                    GD.Print(
+                        $"[GameRoot] Origin ({originGx},{originGy}) not viable; spawned on largest landmass near center at ({walkGx},{walkGy}).");
+                }
+
                 _world.SetActorCellFromShell(walkGx, walkGy, _world.ActorZ);
             }
         }
@@ -658,7 +717,7 @@ public partial class GameRoot : Node2D
     }
 
     /// <summary>
-    /// While WASD are held, advance discrete sub-steps at <see cref="ShellAppConfig.WasdStepsPerSecond"/>; first step fires on the
+    /// While WASD are held, advance discrete sub-steps at the runtime steps/s rate; first step fires on the
     /// frame keys become pressed (no wait for OS key-repeat).
     /// </summary>
     private void TickWasdDiscreteMovement(double delta)
@@ -689,8 +748,8 @@ public partial class GameRoot : Node2D
 
         _wasdKeysHeldLastPhysics = true;
 
-        _wasdStepDebtAccum += delta * _shell.WasdStepsPerSecond;
-        var maxSteps = Mathf.Max(1, _shell.WasdMaxSubStepsPerPhysicsFrame);
+        _wasdStepDebtAccum += delta * _runtimeWasdStepsPerSecond;
+        var maxSteps = Mathf.Max(1, _runtimeWasdMaxSubStepsPerPhysicsFrame);
         var applied = 0;
         while (_wasdStepDebtAccum >= 1.0 && applied < maxSteps)
         {
@@ -1387,10 +1446,11 @@ public partial class GameRoot : Node2D
         var mapLine =
             $"World map {_world.Map.Width}×{_world.Map.Height} cells — WASD to move";
         _shellHud.SetBootText(
-            $"{mapLine}\nWASD — hold to move (smooth repeat; release to stop)   |   Wheel / = - / keypad +/- — zoom   |   E / Enter — link   |   [ ] / PgUp/PgDn — floor   |   F5 — debug   |   Ctrl+Z — undo config   |   ESC — pause / Quit");
+            $"{mapLine}\nWASD — hold to move (smooth repeat; release to stop)   |   Movement sliders — right preset panel   |   Wheel / = - / keypad +/- — zoom   |   E / Enter — link   |   [ ] / PgUp/PgDn — floor   |   F5 — debug   |   Ctrl+Z — undo config   |   ESC — pause / Quit");
         _shellHud.SetRevisionReadout($"REV {ShellFeatureRevision}");
         _shellHud.SyncMapPresetUi(ShellEffectiveLandPercent, ShellEffectiveSeed,
             ShellEffectiveOriginPatchChebyshevRadius, ShellCanApplyLandPercentPreset);
+        _shellHud.SyncWasdMovementSlidersFromGameRoot();
     }
 
     /// <summary>One-shot diagnostics after cold bootstrap to explain blank vs cull vs terrain tint (see cold-start plan).</summary>

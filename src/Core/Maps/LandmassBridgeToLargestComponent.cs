@@ -16,7 +16,8 @@ public static class LandmassBridgeToLargestComponent
     };
 
     /// <summary>Runs <see cref="ApplyToFloor"/> on every present bounded floor.</summary>
-    public static void ApplyToBoundedWorld(WorldMap map)
+    /// <param name="maxLandBridgeManhattanCells">When &gt; 0, skip painting if the shortest grid path from global (0,0) to the largest landmass exceeds this Manhattan distance.</param>
+    public static void ApplyToBoundedWorld(WorldMap map, int maxLandBridgeManhattanCells = 0)
     {
         ArgumentNullException.ThrowIfNull(map);
         if (!map.IsBounded)
@@ -27,7 +28,7 @@ public static class LandmassBridgeToLargestComponent
         {
             if (!map.TryGetFloor(z, out var floor) || floor is null || !floor.IsBounded)
                 continue;
-            ApplyToFloor(floor, terrain);
+            ApplyToFloor(floor, terrain, maxLandBridgeManhattanCells);
         }
     }
 
@@ -35,7 +36,8 @@ public static class LandmassBridgeToLargestComponent
     /// When the clamped global origin is not already on the largest tile-walkable component, BFS-carves
     /// <see cref="TerrainOverride.ForceLand"/> along a shortest path through the grid to that component.
     /// </summary>
-    public static void ApplyToFloor(FloorSlice floor, in TerrainNoiseConfig terrain)
+    /// <param name="maxLandBridgeManhattanCells">When &gt; 0, do not paint if the shortest path exceeds this length (Manhattan steps from origin).</param>
+    public static void ApplyToFloor(FloorSlice floor, in TerrainNoiseConfig terrain, int maxLandBridgeManhattanCells = 0)
     {
         if (!floor.IsBounded)
             return;
@@ -130,12 +132,14 @@ public static class LandmassBridgeToLargestComponent
             return;
 
         var visited = new bool[w, h];
+        var dist = new int[w, h];
         var parentLx = new int[w, h];
         var parentLy = new int[w, h];
         for (var ly = 0; ly < h; ly++)
         {
             for (var lx = 0; lx < w; lx++)
             {
+                dist[lx, ly] = -1;
                 parentLx[lx, ly] = -1;
                 parentLy[lx, ly] = -1;
             }
@@ -144,6 +148,7 @@ public static class LandmassBridgeToLargestComponent
         var bfs = new Queue<(int Lx, int Ly)>();
         bfs.Enqueue((ali, alj));
         visited[ali, alj] = true;
+        dist[ali, alj] = 0;
         var endLx = -1;
         var endLy = -1;
 
@@ -152,6 +157,9 @@ public static class LandmassBridgeToLargestComponent
             var (cx, cy) = bfs.Dequeue();
             if (walkable[cx, cy] && comp[cx, cy] == winningId)
             {
+                if (maxLandBridgeManhattanCells > 0 && dist[cx, cy] > maxLandBridgeManhattanCells)
+                    return;
+
                 endLx = cx;
                 endLy = cy;
                 break;
@@ -167,6 +175,7 @@ public static class LandmassBridgeToLargestComponent
                 if ((uint)nx >= (uint)w || (uint)ny >= (uint)h || visited[nx, ny])
                     return;
                 visited[nx, ny] = true;
+                dist[nx, ny] = dist[cx, cy] + 1;
                 parentLx[nx, ny] = cx;
                 parentLy[nx, ny] = cy;
                 bfs.Enqueue((nx, ny));

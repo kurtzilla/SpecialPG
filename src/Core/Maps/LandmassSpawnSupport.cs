@@ -140,4 +140,103 @@ public static class LandmassSpawnSupport
 
         return false;
     }
+
+    /// <summary>
+    /// True when <paramref name="gx"/>, <paramref name="gy"/> is tile-walkable and lies on the largest 4-connected walkable component
+    /// (same labeling as <see cref="TryFindSpawnChebyshevFromCenterOnLargestLandmass"/>).
+    /// </summary>
+    public static bool IsWalkableOnLargestLandmass(FloorSlice floor, in TerrainNoiseConfig terrain, int gx, int gy)
+    {
+        if (!floor.Contains(gx, gy))
+            return false;
+
+        if (!TileTraversal.IsWalkable(floor.Get(gx, gy), terrain))
+            return false;
+
+        if (!floor.IsBounded)
+            return false;
+
+        var w = floor.Width;
+        var h = floor.Height;
+        var walkable = new bool[w, h];
+        var anyWalk = false;
+        for (var ly = 0; ly < h; ly++)
+        {
+            for (var lx = 0; lx < w; lx++)
+            {
+                var ggx = floor.MinX + lx;
+                var ggy = floor.MinY + ly;
+                if (TileTraversal.IsWalkable(floor.Get(ggx, ggy), terrain))
+                {
+                    walkable[lx, ly] = true;
+                    anyWalk = true;
+                }
+            }
+        }
+
+        if (!anyWalk)
+            return false;
+
+        var comp = new int[w, h];
+        for (var ly = 0; ly < h; ly++)
+        {
+            for (var lx = 0; lx < w; lx++)
+                comp[lx, ly] = -1;
+        }
+
+        var compSizes = new List<int>();
+        for (var ly = 0; ly < h; ly++)
+        {
+            for (var lx = 0; lx < w; lx++)
+            {
+                if (!walkable[lx, ly] || comp[lx, ly] != -1)
+                    continue;
+
+                var id = compSizes.Count;
+                var q = new Queue<(int Lx, int Ly)>();
+                q.Enqueue((lx, ly));
+                comp[lx, ly] = id;
+                var size = 0;
+                while (q.Count > 0)
+                {
+                    var (cx, cy) = q.Dequeue();
+                    size++;
+                    TryEnqueue(cx - 1, cy);
+                    TryEnqueue(cx + 1, cy);
+                    TryEnqueue(cx, cy - 1);
+                    TryEnqueue(cx, cy + 1);
+
+                    void TryEnqueue(int nx, int ny)
+                    {
+                        if ((uint)nx >= (uint)w || (uint)ny >= (uint)h)
+                            return;
+                        if (!walkable[nx, ny] || comp[nx, ny] != -1)
+                            return;
+                        comp[nx, ny] = id;
+                        q.Enqueue((nx, ny));
+                    }
+                }
+
+                compSizes.Add(size);
+            }
+        }
+
+        if (compSizes.Count == 0)
+            return false;
+
+        var winningId = 0;
+        var bestSize = compSizes[0];
+        for (var i = 1; i < compSizes.Count; i++)
+        {
+            if (compSizes[i] > bestSize)
+            {
+                bestSize = compSizes[i];
+                winningId = i;
+            }
+        }
+
+        var li = gx - floor.MinX;
+        var lj = gy - floor.MinY;
+        return walkable[li, lj] && comp[li, lj] == winningId;
+    }
 }
