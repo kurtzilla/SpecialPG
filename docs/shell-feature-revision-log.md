@@ -1,7 +1,7 @@
 ﻿# Shell Feature Revision Log
 
-Revision: 47
-TimestampUtc: 2026-05-14T21:56:34.1041208Z
+Revision: 48
+TimestampUtc: 2026-05-15T21:14:26.9929723Z
 
 Highlights:
 - config.ini shell tuning; Camera2D + discrete WASD sub-tile steps; zoom (wheel, =/-, keypad); upper-right world XY (2 decimals).
@@ -43,3 +43,4 @@ Highlights:
 - REV 45: WASD clamps 1..512 steps/s and 1..128 burst; max_land_bridge_cells + spawn on LCC when origin is a small island.
 - REV 46: Runtime WASD tuning (no restart); ceilings 1024/256; PersistWasdMovementSettings to config.ini.
 - REV 47: WASD speed sliders on right preset stack (in-game) instead of pause menu.
+- REV 48: Visible terrain fill baked to ImageTexture on cull change; _Draw draws texture + grid (fewer CanvasItem ops while panning).

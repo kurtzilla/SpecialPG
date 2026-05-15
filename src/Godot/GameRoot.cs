@@ -19,7 +19,7 @@ public partial class GameRoot : Node2D, IWasdMovementRates
     private const string ShellRevisionLogPath = "res://../../docs/shell-feature-revision-log.md";
 
     /// <summary>Bump when you add user-visible shell behavior; add a line to <see cref="ShellFeatureChangelogLines"/>.</summary>
-    private const int ShellFeatureRevision = 47;
+    private const int ShellFeatureRevision = 48;
 
     private const int StartupZoomNudgeFloorCellSpan = 512;
 
@@ -64,6 +64,7 @@ public partial class GameRoot : Node2D, IWasdMovementRates
         "REV 45: WASD clamps 1..512 steps/s and 1..128 burst; max_land_bridge_cells + spawn on LCC when origin is a small island.",
         "REV 46: Runtime WASD tuning (no restart); ceilings 1024/256; PersistWasdMovementSettings to config.ini.",
         "REV 47: WASD speed sliders on right preset stack (in-game) instead of pause menu.",
+        "REV 48: Visible terrain fill baked to ImageTexture on cull change; _Draw draws texture + grid (fewer CanvasItem ops while panning).",
     };
 
     private static readonly Color GridLineColor = new(0.085f, 0.09f, 0.105f, 0.81f);
@@ -101,6 +102,18 @@ public partial class GameRoot : Node2D, IWasdMovementRates
     private int _shellDrawProfileSampleCount;
     private ulong _shellDrawProfileAccumUsec;
     private double _shellDrawProfileLastAvgMs;
+
+    /// <summary>Baked visible terrain fill (regenerated when cull window / floor / zoom changes). Grid still drawn in <see cref="_Draw"/>.</summary>
+    private ImageTexture? _terrainBakeTexture;
+
+    private Rect2 _terrainBakeScreenRect;
+    private int _terrainBakeMinGx;
+    private int _terrainBakeMaxGx;
+    private int _terrainBakeMinGy;
+    private int _terrainBakeMaxGy;
+    private int _terrainBakeFloorZ = int.MinValue;
+    private Vector2 _terrainBakeZoom = new(float.NaN, float.NaN);
+    private float _terrainBakeCellSizePx = float.NaN;
 
     private WorldState _world = null!;
     private int[] _presentZs = Array.Empty<int>();
@@ -296,6 +309,7 @@ public partial class GameRoot : Node2D, IWasdMovementRates
         _cellSizePx = _shell.CellSizePx;
         SyncRuntimeWasdFromShell();
         EnsureUiCancelBinding();
+        TextureFilter = CanvasItem.TextureFilterEnum.Nearest;
         InitShellDrawProfiling();
 
         var parent = GetParent();
@@ -498,6 +512,8 @@ public partial class GameRoot : Node2D, IWasdMovementRates
         if (!map.IsBounded)
             throw new NotSupportedException(
                 "Unbounded maps are Core-only until streaming shell work lands; use a bounded WorldMap in the Godot shell.");
+
+        MarkShellViewDirty();
         var parent = GetParent();
 
         var floor0 = map.GetOrCreateFloor(0);
@@ -768,6 +784,7 @@ public partial class GameRoot : Node2D, IWasdMovementRates
         _haveLastRedrawCullCells = false;
         _lastPhysicsRedrawZoom = new Vector2(float.NaN, float.NaN);
         _hudReadoutAccumS = HudReadoutIntervalS;
+        DisposeTerrainBakeCache();
     }
 
     public override void _UnhandledInput(InputEvent @event)
@@ -896,6 +913,7 @@ public partial class GameRoot : Node2D, IWasdMovementRates
 
         if (_world is null)
         {
+            DisposeTerrainBakeCache();
             RecordShellDrawProfileSample(profileStartUsec);
             return;
         }
@@ -905,39 +923,14 @@ public partial class GameRoot : Node2D, IWasdMovementRates
         var visible = GetExpandedVisibleCullRect();
         GetVisibleGlobalCellBounds(floor, visible, out var minGx, out var maxGx, out var minGy, out var maxGy);
 
-        var sub = Mathf.Clamp(TerrainContourSubdivisions, 1, 8);
-        var eval = _world.TerrainEvaluator;
-        var terrainCfg = _world.Map.TerrainConfig;
-        for (var gy = minGy; gy <= maxGy; gy++)
+        if (!TerrainBakeMatches(floor, minGx, maxGx, minGy, maxGy))
         {
-            for (var gx = minGx; gx <= maxGx; gx++)
-            {
-                var cell = CellRectGlobal(gx, gy, floor, origin);
-                if (!cell.Intersects(visible))
-                {
-                    continue;
-                }
+            RebuildTerrainBakeTexture(floor, origin, minGx, maxGx, minGy, maxGy);
+        }
 
-                var tile = floor.Get(gx, gy);
-                var sw = cell.Size.X / sub;
-                var sh = cell.Size.Y / sub;
-                for (var iy = 0; iy < sub; iy++)
-                {
-                    for (var ix = 0; ix < sub; ix++)
-                    {
-                        var r = new Rect2(cell.Position.X + ix * sw, cell.Position.Y + iy * sh, sw, sh);
-                        if (!r.Intersects(visible))
-                        {
-                            continue;
-                        }
-
-                        var worldX = gx + (ix + 0.5f) / sub;
-                        var worldY = gy + (sub - 1 - iy + 0.5f) / sub;
-                        var rgb = TerrainVisualColor.AtWorld(worldX, worldY, tile, eval, terrainCfg);
-                        DrawRect(r, new Color(rgb.R, rgb.G, rgb.B), true);
-                    }
-                }
-            }
+        if (_terrainBakeTexture is not null)
+        {
+            DrawTextureRect(_terrainBakeTexture, _terrainBakeScreenRect, false);
         }
 
         DrawGridLines(floor, origin, minGx, maxGx, minGy, maxGy);
@@ -2099,6 +2092,104 @@ public partial class GameRoot : Node2D, IWasdMovementRates
 
     /// <summary>Rounds to the nearest hundredth (two decimal places) for HUD display.</summary>
     private static string FormatWorldCoord(float v) => v.ToString("F2", CultureInfo.InvariantCulture);
+
+    private void DisposeTerrainBakeCache()
+    {
+        if (_terrainBakeTexture is not null)
+        {
+            _terrainBakeTexture.Dispose();
+            _terrainBakeTexture = null;
+        }
+    }
+
+    private bool TerrainBakeMatches(FloorSlice floor, int minGx, int maxGx, int minGy, int maxGy)
+    {
+        if (_terrainBakeTexture is null)
+        {
+            return false;
+        }
+
+        if (_terrainBakeMinGx != minGx || _terrainBakeMaxGx != maxGx || _terrainBakeMinGy != minGy ||
+            _terrainBakeMaxGy != maxGy)
+        {
+            return false;
+        }
+
+        if (_terrainBakeFloorZ != floor.Z)
+        {
+            return false;
+        }
+
+        if (!Mathf.IsEqualApprox(_terrainBakeCellSizePx, _cellSizePx))
+        {
+            return false;
+        }
+
+        return Mathf.IsEqualApprox(_terrainBakeZoom.X, _zoom.X) && Mathf.IsEqualApprox(_terrainBakeZoom.Y, _zoom.Y);
+    }
+
+    private void RebuildTerrainBakeTexture(FloorSlice floor, Vector2 origin, int minGx, int maxGx, int minGy, int maxGy)
+    {
+        DisposeTerrainBakeCache();
+
+        var wCells = maxGx - minGx + 1;
+        var hCells = maxGy - minGy + 1;
+        if (wCells <= 0 || hCells <= 0)
+        {
+            _terrainBakeScreenRect = default;
+            return;
+        }
+
+        var topLeft = CellRectGlobal(minGx, maxGy, floor, origin).Position;
+        var screenW = wCells * _cellSizePx;
+        var screenH = hCells * _cellSizePx;
+        _terrainBakeScreenRect = new Rect2(topLeft, new Vector2(screenW, screenH));
+
+        var imgW = Mathf.Max(1, Mathf.CeilToInt(screenW));
+        var imgH = Mathf.Max(1, Mathf.CeilToInt(screenH));
+        var img = Image.CreateEmpty(imgW, imgH, false, Image.Format.Rgba8);
+
+        var sub = Mathf.Clamp(TerrainContourSubdivisions, 1, 8);
+        var eval = _world.TerrainEvaluator;
+        var terrainCfg = _world.Map.TerrainConfig;
+
+        for (var gy = minGy; gy <= maxGy; gy++)
+        {
+            for (var gx = minGx; gx <= maxGx; gx++)
+            {
+                var cell = CellRectGlobal(gx, gy, floor, origin);
+                var rx = cell.Position.X - topLeft.X;
+                var ry = cell.Position.Y - topLeft.Y;
+                var sw = cell.Size.X / sub;
+                var sh = cell.Size.Y / sub;
+                for (var iy = 0; iy < sub; iy++)
+                {
+                    for (var ix = 0; ix < sub; ix++)
+                    {
+                        var fx = rx + ix * sw;
+                        var fy = ry + iy * sh;
+                        var pw = Mathf.Max(1, Mathf.CeilToInt(fx + sw) - Mathf.FloorToInt(fx));
+                        var ph = Mathf.Max(1, Mathf.CeilToInt(fy + sh) - Mathf.FloorToInt(fy));
+                        var r = new Rect2I(Mathf.FloorToInt(fx), Mathf.FloorToInt(fy), pw, ph);
+                        var tile = floor.Get(gx, gy);
+                        var worldX = gx + (ix + 0.5f) / sub;
+                        var worldY = gy + (sub - 1 - iy + 0.5f) / sub;
+                        var rgb = TerrainVisualColor.AtWorld(worldX, worldY, tile, eval, terrainCfg);
+                        img.FillRect(r, new Color(rgb.R, rgb.G, rgb.B, 1f));
+                    }
+                }
+            }
+        }
+
+        _terrainBakeTexture = ImageTexture.CreateFromImage(img);
+        _terrainBakeMinGx = minGx;
+        _terrainBakeMaxGx = maxGx;
+        _terrainBakeMinGy = minGy;
+        _terrainBakeMaxGy = maxGy;
+        _terrainBakeFloorZ = floor.Z;
+        _terrainBakeZoom = _zoom;
+        _terrainBakeCellSizePx = _cellSizePx;
+    }
 
     /// <summary>Axis-aligned rect for global cell <paramref name="globalX"/>, <paramref name="globalY"/>; north-up Y flip via local row (see architecture.md).</summary>
     private Rect2 CellRectGlobal(int globalX, int globalY, FloorSlice floor, Vector2 gridOriginTopLeft)
