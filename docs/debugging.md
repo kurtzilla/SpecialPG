@@ -85,10 +85,30 @@ The **External Debug Attach** addon under [`src/Godot/addons/external_debug_atta
 
 **Godot editor:** **Debugger → Monitors** — watch **Process → Frame Time**, **Canvas Item → Canvas Item Drawn in Frame**, and redraw-related counters while holding WASD.
 
-**Rolling average from the shell:** in [`config.ini`](../src/Godot/config.ini) under **`[shell]`**, set **`profile_shell_draw=true`**, or set process environment **`SPECIALPG_PROFILE_SHELL_DRAW=1`** (or `true`) before starting the game. After ~90 `_Draw` calls, the console prints average milliseconds per draw (terrain + grid). Prefer **`profile_shell_draw`** when launching from the editor so you do not depend on inherited env vars.
+**Rolling average from the shell:** in [`config.ini`](../src/Godot/config.ini) under **`[shell]`**, set **`profile_shell_draw=true`**, or set process environment **`SPECIALPG_PROFILE_SHELL_DRAW=1`** (or `true`) before starting the game. After ~90 `_Draw` calls, the console prints split averages (REV 54):
 
-**HUD perf line:** The upper-right **`… ms/frame (from FPS)`** value is `1000 / ShellFps` (implied frame time from the smoothed FPS counter), **not** the terrain `_Draw` average. When profiling is on and at least one rolling average has been computed, the same label also shows **`Draw … ms avg (terrain+grid)`** from [`GameRoot`](../src/Godot/GameRoot.cs) (same metric as the console log).
+| Bucket | What it measures |
+|--------|------------------|
+| `terrain_chunk_rebuild` | Sum of dirty `TerrainChunkView` CPU bakes in `SyncTerrainChunks` |
+| `surface_sync` | `SyncSurfaceLayers` (decor + entities) |
+| `grid_draw` | `DrawGridLines` in `_Draw` |
+| (total line) | Full `_Draw` wall time |
+
+Pan the camera across a large map and compare which bucket dominates. Prefer **`profile_shell_draw`** when launching from the editor so you do not depend on inherited env vars.
+
+**HUD perf line:** The upper-right **`… ms/frame (from FPS)`** value is `1000 / ShellFps` (implied frame time from the smoothed FPS counter), **not** the terrain `_Draw` average. When profiling is on and at least one rolling average has been computed, the same label also shows **`Draw … ms (terr … surf … grid …)`** from [`GameRoot`](../src/Godot/GameRoot.cs) (same split as the console log).
 **If numbers are high:** the next architectural step is to **split static terrain from per-frame work** (for example rasterize visible terrain to a texture or `SubViewportTexture` when the culled cell range changes, and scroll that texture with the camera).
+
+### Low FPS after enabling terrain sprites / transitions (REV 57)
+
+If the shell drops to a few FPS with **`terrain_use_sprites=true`**:
+
+1. **Restart** after editing [`config.ini`](../src/Godot/config.ini) — defaults are **`terrain_water_animate=false`** and **`terrain_transitions_enabled=true`**.
+2. With **`terrain_water_animate=true`**, water frames only rebuild **chunks that contain water** in the current cull window (not every visible chunk). Land-only views should not rebake on the 200 ms water tick.
+3. To isolate cost, set **`terrain_transitions_enabled=false`** (disables `TileTransitionPlanner` on chunk bake; restart). Re-enable when coast edges look acceptable at your target FPS.
+4. Enable **`profile_shell_draw=true`** and watch the HUD **`Draw … ms (terr …)`** line — if **`terr`** dominates while panning is idle, chunk rebakes are still firing (check water anim or map edits).
+
+**Phase 4b** (corner transitions, `Main8x8`) and **Phase 6.5** (elevation LUT shader) remain deferred until profiling shows they are needed.
 
 ## Movement tuning (WASD + physics cadence)
 

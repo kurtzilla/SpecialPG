@@ -11,6 +11,9 @@ public sealed class EntityStore
     private readonly Dictionary<EntityId, EntityRecord> _byId = new();
     private readonly Dictionary<(int Cx, int Cy, int Z), List<EntityId>> _byChunk = new();
 
+    /// <summary>Raised after spawn, destroy, or cell move so the shell can refresh surface layers.</summary>
+    public event Action<EntityRecord>? EntityChanged;
+
     public EntityStore(WorldMap map) =>
         _map = map ?? throw new ArgumentNullException(nameof(map));
 
@@ -32,6 +35,7 @@ public sealed class EntityStore
         };
         _byId[id] = record;
         AddToChunkIndex(id, record);
+        EntityChanged?.Invoke(record);
         return id;
     }
 
@@ -40,6 +44,7 @@ public sealed class EntityStore
         if (!_byId.Remove(id, out var prev))
             return false;
         RemoveFromChunkIndex(id, prev);
+        EntityChanged?.Invoke(prev);
         return true;
     }
 
@@ -53,6 +58,7 @@ public sealed class EntityStore
         var next = prev with { X = x, Y = y, Z = z };
         _byId[id] = next;
         AddToChunkIndex(id, next);
+        EntityChanged?.Invoke(next);
         return true;
     }
 

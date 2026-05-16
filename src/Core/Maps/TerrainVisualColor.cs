@@ -1,4 +1,5 @@
 using SpecialPG.Core.Maps.Noise;
+using SpecialPG.Core.Maps.Rendering;
 
 namespace SpecialPG.Core.Maps;
 
@@ -16,6 +17,7 @@ public readonly struct TerrainRgb(float r, float g, float b)
 
 /// <summary>
 /// Milestone 7: continuous noise sampling for shoreline / elevation tint (overrides still win).
+/// Categories come from <see cref="TerrainAppearance"/>; RGB uses continuous blends where applicable.
 /// </summary>
 public static class TerrainVisualColor
 {
@@ -49,34 +51,55 @@ public static class TerrainVisualColor
         float worldY,
         in TileCell tile,
         ITerrainEvaluator evaluator,
-        in TerrainNoiseConfig terrain)
+        in TerrainNoiseConfig terrain,
+        int waterAnimationFrame = -1)
     {
         ArgumentNullException.ThrowIfNull(evaluator);
 
-        if (tile.Override == TerrainOverride.ForceLand)
+        var category = TerrainAppearance.Resolve(worldX, worldY, tile, evaluator, terrain);
+        var rgb = category switch
         {
-            var s = evaluator.EvaluateAt(worldX, worldY);
-            if (evaluator.IsWater(s))
-            {
-                var span = Math.Max(1e-4f, terrain.WaterElevationThreshold - (-1f));
-                var t = Clamp01((terrain.WaterElevationThreshold - s.Elevation) / span);
-                return LerpRgb(LerpRgb(CoastSand, Land, 0.55f), WaterShallow, t * 0.22f);
-            }
+            TerrainRenderCategory.ForcedLandCoastBlend => ForcedLandCoastBlendRgb(worldX, worldY, evaluator, terrain),
+            TerrainRenderCategory.ForcedLandOverride =>
+                LerpRgb(FromEvaluatorRgb(worldX, worldY, evaluator, terrain), Land, 0.22f),
+            TerrainRenderCategory.ForcedWater => WaterDeep,
+            TerrainRenderCategory.Blocked => Blocked,
+            TerrainRenderCategory.Empty => Empty,
+            _ => FromEvaluatorRgb(worldX, worldY, evaluator, terrain),
+        };
 
-            var blended = FromEvaluator(worldX, worldY, evaluator, terrain);
-            return LerpRgb(blended, Land, 0.22f);
-        }
-        if (tile.Override == TerrainOverride.ForceWater)
-            return WaterDeep;
-        if ((tile.Flags & TileFlags.Blocked) != 0 && !TileTraversal.IsWaterSurface(tile, terrain))
-            return Blocked;
-        if (tile.IsEmpty)
-            return FromEvaluator(worldX, worldY, evaluator, terrain);
-
-        return FromEvaluator(worldX, worldY, evaluator, terrain);
+        return ApplyWaterAnimation(rgb, category, waterAnimationFrame);
     }
 
-    private static TerrainRgb FromEvaluator(float worldX, float worldY, ITerrainEvaluator e, in TerrainNoiseConfig cfg)
+    /// <summary>Subtle brightness pulse for animated water in color bake mode.</summary>
+    public static TerrainRgb ApplyWaterAnimation(TerrainRgb rgb, TerrainRenderCategory category, int waterAnimationFrame)
+    {
+        if (waterAnimationFrame < 0 || !TerrainWaterAnimation.IsWaterCategory(category))
+        {
+            return rgb;
+        }
+
+        var t = waterAnimationFrame / (float)Math.Max(1, TerrainWaterAnimation.FrameCount - 1);
+        var pulse = 0.90f + 0.10f * t;
+        return new TerrainRgb(
+            Math.Min(1f, rgb.R * pulse),
+            Math.Min(1f, rgb.G * pulse),
+            Math.Min(1f, rgb.B * (0.96f + 0.08f * t)));
+    }
+
+    private static TerrainRgb ForcedLandCoastBlendRgb(
+        float worldX,
+        float worldY,
+        ITerrainEvaluator evaluator,
+        in TerrainNoiseConfig terrain)
+    {
+        var s = evaluator.EvaluateAt(worldX, worldY);
+        var span = Math.Max(1e-4f, terrain.WaterElevationThreshold - (-1f));
+        var t = Clamp01((terrain.WaterElevationThreshold - s.Elevation) / span);
+        return LerpRgb(LerpRgb(CoastSand, Land, 0.55f), WaterShallow, t * 0.22f);
+    }
+
+    private static TerrainRgb FromEvaluatorRgb(float worldX, float worldY, ITerrainEvaluator e, in TerrainNoiseConfig cfg)
     {
         var s = e.EvaluateAt(worldX, worldY);
         if (e.IsWater(s))
@@ -114,36 +137,20 @@ public static class TerrainVisualColor
     {
         ArgumentNullException.ThrowIfNull(evaluator);
 
-        if (tile.Override == TerrainOverride.ForceLand)
+        return TerrainAppearance.Resolve(worldX, worldY, tile, evaluator, terrain) switch
         {
-            var s = evaluator.EvaluateAt(worldX, worldY);
-            if (evaluator.IsWater(s))
-                return "Forced land (coast blend)";
-            return "Forced land (override)";
-        }
-        if (tile.Override == TerrainOverride.ForceWater)
-            return "Forced water (override)";
-        if ((tile.Flags & TileFlags.Blocked) != 0 && !TileTraversal.IsWaterSurface(tile, terrain))
-            return "Blocked tile";
-
-        return DescribeFromEvaluator(worldX, worldY, evaluator, terrain);
-    }
-
-    private static string DescribeFromEvaluator(float worldX, float worldY, ITerrainEvaluator e, in TerrainNoiseConfig cfg)
-    {
-        var s = e.EvaluateAt(worldX, worldY);
-        if (e.IsWater(s))
-        {
-            var span = Math.Max(1e-4f, cfg.WaterElevationThreshold - (-1f));
-            var t = Clamp01((cfg.WaterElevationThreshold - s.Elevation) / span);
-            return t >= 0.5f ? "Shallow water" : "Deep water";
-        }
-
-        if (s.Elevation < cfg.CoastElevationThreshold)
-            return "Coast (low land)";
-        if (s.Elevation > cfg.HillElevationThreshold)
-            return "Hills (high elev.)";
-        return "Land";
+            TerrainRenderCategory.ForcedLandCoastBlend => "Forced land (coast blend)",
+            TerrainRenderCategory.ForcedLandOverride => "Forced land (override)",
+            TerrainRenderCategory.ForcedWater => "Forced water (override)",
+            TerrainRenderCategory.Blocked => "Blocked tile",
+            TerrainRenderCategory.DeepWater => "Deep water",
+            TerrainRenderCategory.ShallowWater => "Shallow water",
+            TerrainRenderCategory.Coast => "Coast (low land)",
+            TerrainRenderCategory.Hill => "Hills (high elev.)",
+            TerrainRenderCategory.Land => "Land",
+            TerrainRenderCategory.Empty => "Empty / no chunk data",
+            _ => "Land",
+        };
     }
 
     private static float Clamp01(float v) => v < 0f ? 0f : (v > 1f ? 1f : v);

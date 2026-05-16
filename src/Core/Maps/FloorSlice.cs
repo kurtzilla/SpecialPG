@@ -168,6 +168,12 @@ public sealed class FloorSlice
         }
     }
 
+    /// <summary>Chunk indices for global cell <paramref name="gx"/>, <paramref name="gy"/>.</summary>
+    public void ResolveChunkCoordinates(int gx, int gy, out int cx, out int cy)
+    {
+        ResolveChunk(gx, gy, out cx, out cy, out _, out _);
+    }
+
     private void ResolveChunk(int x, int y, out int cx, out int cy, out int lx, out int ly)
     {
         var slx = x - MinX;

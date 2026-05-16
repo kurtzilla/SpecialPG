@@ -1,7 +1,7 @@
 ﻿# Shell Feature Revision Log
 
-Revision: 48
-TimestampUtc: 2026-05-15T21:14:26.9929723Z
+Revision: 57
+TimestampUtc: 2026-05-17T00:00:00.0000000Z
 
 Highlights:
 - config.ini shell tuning; Camera2D + discrete WASD sub-tile steps; zoom (wheel, =/-, keypad); upper-right world XY (2 decimals).
@@ -44,3 +44,11 @@ Highlights:
 - REV 46: Runtime WASD tuning (no restart); ceilings 1024/256; PersistWasdMovementSettings to config.ini.
 - REV 47: WASD speed sliders on right preset stack (in-game) instead of pause menu.
 - REV 48: Visible terrain fill baked to ImageTexture on cull change; _Draw draws texture + grid (fewer CanvasItem ops while panning).
+- REV 49: Optional terrain_use_sprites in config.ini — atlas blit bake via TileSpriteResolver (color fallback when atlas missing).
+- REV 50: Per-chunk TerrainChunkView terrain (32×32); viewport monolithic bake removed; dirty chunk rebuild on edit/cull.
+- REV 51: TileMainPatchPlanner 4×4/2×2/1×1 main patches with global anchors; expanded atlas; PaintOp multi-cell blit.
+- REV 53: SurfaceFloorLayer — procedural decor scatter + EntityStore prop sprites above terrain.
+- REV 54: Split shell draw profiling; decor sprite pool + optional MultiMesh; animated water; terrain-art-import doc.
+- REV 55: Neighbor chunk dirty fan-out; TileDrawOp sort; surface/entity dirty hooks on tile edit and EntityStore.
+- REV 56: TileTransitionPlanner Side sprites; two-pass chunk rasterize; transition atlas strips.
+- REV 57: Water animation marks only water chunks dirty; terrain_transitions_enabled config; water anim default off; transition planner category grid; removed HUD MarkAllDirty.

@@ -55,7 +55,12 @@ public sealed class ShellAppConfig
         bool largeMapMode,
         bool randomizeStartupSeed,
         bool profileShellDraw,
-        int maxLandBridgeCells)
+        int maxLandBridgeCells,
+        bool terrainUseSprites,
+        bool decorEnabled,
+        bool terrainWaterAnimate,
+        bool decorUseMultimesh,
+        bool terrainTransitionsEnabled)
     {
         CellSizePx = cellSizePx;
         DefaultMapWidthCells = defaultMapWidthCells;
@@ -78,6 +83,11 @@ public sealed class ShellAppConfig
         RandomizeStartupSeed = randomizeStartupSeed;
         ProfileShellDraw = profileShellDraw;
         MaxLandBridgeCells = maxLandBridgeCells;
+        TerrainUseSprites = terrainUseSprites;
+        DecorEnabled = decorEnabled;
+        TerrainWaterAnimate = terrainWaterAnimate;
+        DecorUseMultimesh = decorUseMultimesh;
+        TerrainTransitionsEnabled = terrainTransitionsEnabled;
     }
 
     public float CellSizePx { get; }
@@ -145,6 +155,21 @@ public sealed class ShellAppConfig
     /// <summary>When true, <see cref="GameRoot"/> logs rolling average <c>_Draw</c> time (also env SPECIALPG_PROFILE_SHELL_DRAW).</summary>
     public bool ProfileShellDraw { get; }
 
+    /// <summary>When true and the terrain atlas loads, <see cref="GameRoot"/> bakes atlas sprites instead of flat <see cref="Core.Maps.TerrainVisualColor"/> fills.</summary>
+    public bool TerrainUseSprites { get; }
+
+    /// <summary>When true and the decor atlas loads, <see cref="GameRoot"/> scatters decor sprites on land-like tiles.</summary>
+    public bool DecorEnabled { get; }
+
+    /// <summary>When true, water tiles animate via staggered atlas variant frames (chunk rebuild on frame tick).</summary>
+    public bool TerrainWaterAnimate { get; }
+
+    /// <summary>When true, decor uses <see cref="MultiMeshInstance2D"/> instead of pooled <see cref="Sprite2D"/> nodes.</summary>
+    public bool DecorUseMultimesh { get; }
+
+    /// <summary>When true, chunk bakes run <see cref="Core.Maps.Rendering.TileTransitionPlanner"/> (disable for profiling).</summary>
+    public bool TerrainTransitionsEnabled { get; }
+
     public static ShellAppConfig LoadOrDefault()
     {
         const float defCell = 32f;
@@ -169,6 +194,11 @@ public sealed class ShellAppConfig
         const bool defRandomizeStartupSeed = true;
         const bool defProfileShellDraw = false;
         const int defMaxLandBridgeCells = 0;
+        const bool defTerrainUseSprites = false;
+        const bool defDecorEnabled = true;
+        const bool defTerrainWaterAnimate = false;
+        const bool defDecorUseMultimesh = false;
+        const bool defTerrainTransitionsEnabled = true;
 
         var cf = new ConfigFile();
         var err = cf.Load(Path);
@@ -178,7 +208,8 @@ public sealed class ShellAppConfig
             return new ShellAppConfig(defCell, defW, defH, defChunkW, defChunkH, defWasdStepsPerSecond, defWasdMaxSubStepsPerPhysicsFrame, defZMin, defZMax, defZStep,
                 defRenderScale, defMaxFps, defVsyncMode,
                 defStartupUseJsonSample, defStartupSeed, defStartupLandPercent, defStartupOriginPatchRadius,
-                defLargeMapMode, defRandomizeStartupSeed, defProfileShellDraw, defMaxLandBridgeCells);
+                defLargeMapMode, defRandomizeStartupSeed, defProfileShellDraw, defMaxLandBridgeCells,
+                defTerrainUseSprites, defDecorEnabled, defTerrainWaterAnimate, defDecorUseMultimesh, defTerrainTransitionsEnabled);
         }
 
         float F(string key, float d) =>
@@ -239,7 +270,12 @@ public sealed class ShellAppConfig
             largeMapMode,
             B("randomize_startup_seed", defRandomizeStartupSeed),
             B("profile_shell_draw", defProfileShellDraw),
-            maxLandBridgeCells);
+            maxLandBridgeCells,
+            B("terrain_use_sprites", defTerrainUseSprites),
+            B("decor_enabled", defDecorEnabled),
+            B("terrain_water_animate", defTerrainWaterAnimate),
+            B("decor_use_multimesh", defDecorUseMultimesh),
+            B("terrain_transitions_enabled", defTerrainTransitionsEnabled));
     }
 
     public static Error SaveRuntimeShellSettings(

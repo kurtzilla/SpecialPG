@@ -7,6 +7,7 @@ using System.Text;
 using Godot;
 using SpecialPG;
 using SpecialPG.Core.Maps;
+using SpecialPG.Core.Maps.Rendering;
 using CoreTileCell = SpecialPG.Core.Maps.TileCell;
 
 /// <summary>
@@ -19,7 +20,7 @@ public partial class GameRoot : Node2D, IWasdMovementRates
     private const string ShellRevisionLogPath = "res://../../docs/shell-feature-revision-log.md";
 
     /// <summary>Bump when you add user-visible shell behavior; add a line to <see cref="ShellFeatureChangelogLines"/>.</summary>
-    private const int ShellFeatureRevision = 48;
+    private const int ShellFeatureRevision = 57;
 
     private const int StartupZoomNudgeFloorCellSpan = 512;
 
@@ -65,12 +66,17 @@ public partial class GameRoot : Node2D, IWasdMovementRates
         "REV 46: Runtime WASD tuning (no restart); ceilings 1024/256; PersistWasdMovementSettings to config.ini.",
         "REV 47: WASD speed sliders on right preset stack (in-game) instead of pause menu.",
         "REV 48: Visible terrain fill baked to ImageTexture on cull change; _Draw draws texture + grid (fewer CanvasItem ops while panning).",
+        "REV 49: Optional terrain_use_sprites in config.ini — atlas blit bake via TileSpriteResolver (color fallback when atlas missing).",
+        "REV 50: Per-chunk TerrainChunkView terrain (32×32); viewport monolithic bake removed; dirty chunk rebuild on edit/cull.",
+        "REV 51: TileMainPatchPlanner 4×4/2×2/1×1 main patches with global anchors; expanded atlas; PaintOp multi-cell blit.",
+        "REV 53: SurfaceFloorLayer — procedural decor scatter + EntityStore prop sprites above terrain.",
+        "REV 54: Split shell draw profiling; decor sprite pool + optional MultiMesh; animated water; terrain-art-import doc.",
+        "REV 55: Neighbor chunk dirty fan-out; TileDrawOp sort; surface/entity dirty hooks on tile edit and EntityStore.",
+        "REV 56: TileTransitionPlanner Side sprites; two-pass chunk rasterize; transition atlas strips.",
+        "REV 57: Terrain perf — scoped water-chunk dirty; terrain_transitions_enabled; water anim default off; no HUD MarkAllDirty.",
     };
 
     private static readonly Color GridLineColor = new(0.085f, 0.09f, 0.105f, 0.81f);
-
-    /// <summary>Sub-rectangles per cell for smoother shoreline when &gt; 1; shell uses 1 so each cell is one flat fill (no inner seams).</summary>
-    private const int TerrainContourSubdivisions = 1;
 
     private ShellAppConfig _shell = null!;
     private float _runtimeWasdStepsPerSecond;
@@ -101,19 +107,24 @@ public partial class GameRoot : Node2D, IWasdMovementRates
     private bool _shellDrawProfileEnabled;
     private int _shellDrawProfileSampleCount;
     private ulong _shellDrawProfileAccumUsec;
+    private ulong _shellTerrainRebuildAccumUsec;
+    private ulong _shellSurfaceSyncAccumUsec;
+    private ulong _shellGridDrawAccumUsec;
     private double _shellDrawProfileLastAvgMs;
+    private double _shellDrawProfileLastTerrainMs;
+    private double _shellDrawProfileLastSurfaceMs;
+    private double _shellDrawProfileLastGridMs;
+    private int _waterAnimLastGlobalFrame = -1;
 
-    /// <summary>Baked visible terrain fill (regenerated when cull window / floor / zoom changes). Grid still drawn in <see cref="_Draw"/>.</summary>
-    private ImageTexture? _terrainBakeTexture;
-
-    private Rect2 _terrainBakeScreenRect;
-    private int _terrainBakeMinGx;
-    private int _terrainBakeMaxGx;
-    private int _terrainBakeMinGy;
-    private int _terrainBakeMaxGy;
-    private int _terrainBakeFloorZ = int.MinValue;
-    private Vector2 _terrainBakeZoom = new(float.NaN, float.NaN);
-    private float _terrainBakeCellSizePx = float.NaN;
+    private readonly TerrainAtlasCatalog _terrainAtlas = new();
+    private readonly DecorAtlasCatalog _decorAtlas = new();
+    private readonly EntitySpriteCatalog _entityCatalog = new();
+    private bool _terrainAtlasLoaded;
+    private bool _decorAtlasLoaded;
+    private bool _entityAtlasLoaded;
+    private TerrainFloorLayer? _terrainFloorLayer;
+    private SurfaceFloorLayer? _surfaceFloorLayer;
+    private int _terrainSyncedFloorZ = int.MinValue;
 
     private WorldState _world = null!;
     private int[] _presentZs = Array.Empty<int>();
@@ -307,6 +318,28 @@ public partial class GameRoot : Node2D, IWasdMovementRates
     {
         _shell = ShellAppConfig.LoadOrDefault();
         _cellSizePx = _shell.CellSizePx;
+        _terrainAtlasLoaded = _terrainAtlas.TryLoad();
+        var terrainHudTag = FormatTerrainHudTag();
+        if (_shell.TerrainUseSprites && !_terrainAtlasLoaded)
+        {
+            GD.PushWarning(
+                $"[GameRoot] terrain_use_sprites=true but terrain atlas failed to load ({_terrainAtlas.LoadDiagnostics}); using color bake.");
+        }
+        else
+        {
+            GD.Print($"[GameRoot] Terrain bake mode: {terrainHudTag} (config terrain_use_sprites={_shell.TerrainUseSprites}).");
+        }
+
+        _terrainFloorLayer = new TerrainFloorLayer { Name = "TerrainFloorLayer", ZIndex = -8 };
+        AddChild(_terrainFloorLayer);
+        MoveChild(_terrainFloorLayer, 0);
+
+        _decorAtlasLoaded = _decorAtlas.TryLoad();
+        _entityAtlasLoaded = _entityCatalog.TryLoad();
+        _surfaceFloorLayer = new SurfaceFloorLayer { Name = "SurfaceFloorLayer", ZIndex = -4 };
+        AddChild(_surfaceFloorLayer);
+        MoveChild(_surfaceFloorLayer, 1);
+
         SyncRuntimeWasdFromShell();
         EnsureUiCancelBinding();
         TextureFilter = CanvasItem.TextureFilterEnum.Nearest;
@@ -519,7 +552,11 @@ public partial class GameRoot : Node2D, IWasdMovementRates
         var floor0 = map.GetOrCreateFloor(0);
         var originGx = Mathf.Clamp(0, floor0.MinX, floor0.MinX + floor0.Width - 1);
         var originGy = Mathf.Clamp(0, floor0.MinY, floor0.MinY + floor0.Height - 1);
+        if (_world is not null)
+            _world.Entities.EntityChanged -= OnEntityStoreChanged;
+
         _world = new WorldState(map, originGx, originGy, 0);
+        _world.Entities.EntityChanged += OnEntityStoreChanged;
 
         RefreshPresentZs();
         if (_presentZs.Length == 0)
@@ -531,6 +568,8 @@ public partial class GameRoot : Node2D, IWasdMovementRates
         BuildSampleTilesIfEmpty();
         ApplyDebugPlaceholders();
         _world.ClampAfterShellMapMutation();
+        SeedDebugSurfaceEntities(floor0, _world);
+        MarkDebugEntityChunksDirty(floor0);
         RevalidateIntegrity();
 
         floor0 = map.GetOrCreateFloor(0);
@@ -655,6 +694,7 @@ public partial class GameRoot : Node2D, IWasdMovementRates
 
     public override void _Process(double delta)
     {
+        TickWaterAnimation();
         ShellFps = (float)Engine.GetFramesPerSecond();
         if (_shellHud is null || _camera2D is null)
         {
@@ -673,7 +713,7 @@ public partial class GameRoot : Node2D, IWasdMovementRates
         var perf = $"{frameMs:F1} ms/frame (from FPS)";
         if (_shellDrawProfileEnabled && _shellDrawProfileLastAvgMs > 0)
         {
-            perf += $"  |  Draw {_shellDrawProfileLastAvgMs:F2} ms avg (terrain+grid)";
+            perf += $"  |  Draw {_shellDrawProfileLastAvgMs:F2} ms (terr {_shellDrawProfileLastTerrainMs:F2} surf {_shellDrawProfileLastSurfaceMs:F2} grid {_shellDrawProfileLastGridMs:F2})";
         }
 
         _shellHud.SetPerfReadout(perf);
@@ -784,7 +824,9 @@ public partial class GameRoot : Node2D, IWasdMovementRates
         _haveLastRedrawCullCells = false;
         _lastPhysicsRedrawZoom = new Vector2(float.NaN, float.NaN);
         _hudReadoutAccumS = HudReadoutIntervalS;
-        DisposeTerrainBakeCache();
+        _terrainSyncedFloorZ = int.MinValue;
+        _terrainFloorLayer?.ClearAll();
+        _surfaceFloorLayer?.ClearAll();
     }
 
     public override void _UnhandledInput(InputEvent @event)
@@ -913,7 +955,8 @@ public partial class GameRoot : Node2D, IWasdMovementRates
 
         if (_world is null)
         {
-            DisposeTerrainBakeCache();
+            _terrainFloorLayer?.ClearAll();
+            _surfaceFloorLayer?.ClearAll();
             RecordShellDrawProfileSample(profileStartUsec);
             return;
         }
@@ -923,18 +966,65 @@ public partial class GameRoot : Node2D, IWasdMovementRates
         var visible = GetExpandedVisibleCullRect();
         GetVisibleGlobalCellBounds(floor, visible, out var minGx, out var maxGx, out var minGy, out var maxGy);
 
-        if (!TerrainBakeMatches(floor, minGx, maxGx, minGy, maxGy))
-        {
-            RebuildTerrainBakeTexture(floor, origin, minGx, maxGx, minGy, maxGy);
-        }
+        var terrainStart = ProfileStartUsec();
+        SyncTerrainChunks(floor, minGx, maxGx, minGy, maxGy, origin);
+        ProfileAddElapsed(terrainStart, ref _shellTerrainRebuildAccumUsec);
 
-        if (_terrainBakeTexture is not null)
-        {
-            DrawTextureRect(_terrainBakeTexture, _terrainBakeScreenRect, false);
-        }
+        var surfaceStart = ProfileStartUsec();
+        SyncSurfaceLayers(floor, minGx, maxGx, minGy, maxGy, origin);
+        ProfileAddElapsed(surfaceStart, ref _shellSurfaceSyncAccumUsec);
 
+        var gridStart = ProfileStartUsec();
         DrawGridLines(floor, origin, minGx, maxGx, minGy, maxGy);
+        ProfileAddElapsed(gridStart, ref _shellGridDrawAccumUsec);
+
         RecordShellDrawProfileSample(profileStartUsec);
+    }
+
+    private void TickWaterAnimation()
+    {
+        if (!_shell.TerrainWaterAnimate || _world is null || !_haveLastRedrawCullCells)
+        {
+            return;
+        }
+
+        var frame = TerrainWaterAnimation.GetGlobalFrameIndex((long)Time.GetTicksMsec());
+        if (frame == _waterAnimLastGlobalFrame)
+        {
+            return;
+        }
+
+        _waterAnimLastGlobalFrame = frame;
+        var floor = ActiveFloorSlice;
+        if (_terrainFloorLayer is null)
+        {
+            return;
+        }
+
+        if (!_terrainFloorLayer.MarkWaterChunksDirtyInRange(
+                floor,
+                _lastRedrawCullMinGx,
+                _lastRedrawCullMaxGx,
+                _lastRedrawCullMinGy,
+                _lastRedrawCullMaxGy))
+        {
+            return;
+        }
+
+        QueueRedraw();
+    }
+
+    private ulong ProfileStartUsec() =>
+        _shellDrawProfileEnabled ? Time.GetTicksUsec() : 0UL;
+
+    private static void ProfileAddElapsed(ulong startUsec, ref ulong accum)
+    {
+        if (startUsec == 0UL)
+        {
+            return;
+        }
+
+        accum += Time.GetTicksUsec() - startUsec;
     }
 
     private void InitShellDrawProfiling()
@@ -945,7 +1035,7 @@ public partial class GameRoot : Node2D, IWasdMovementRates
         if (_shellDrawProfileEnabled)
         {
             GD.Print(
-                $"[GameRoot] Shell terrain _Draw profiling enabled (shell profile_shell_draw or {ShellDrawProfileEnvVar}); avg ms every ~90 draws.");
+                $"[GameRoot] Shell _Draw profiling enabled (profile_shell_draw or {ShellDrawProfileEnvVar}); split terrain/surface/grid avg every ~90 draws.");
         }
     }
 
@@ -974,10 +1064,22 @@ public partial class GameRoot : Node2D, IWasdMovementRates
             return;
         }
 
-        var avgMs = _shellDrawProfileAccumUsec / (double)_shellDrawProfileSampleCount / 1000.0;
-        GD.Print($"[GameRoot] _Draw avg {avgMs:F2} ms over {_shellDrawProfileSampleCount} samples (terrain+grid).");
+        var n = (double)_shellDrawProfileSampleCount;
+        var avgMs = _shellDrawProfileAccumUsec / n / 1000.0;
+        var terrainMs = _shellTerrainRebuildAccumUsec / n / 1000.0;
+        var surfaceMs = _shellSurfaceSyncAccumUsec / n / 1000.0;
+        var gridMs = _shellGridDrawAccumUsec / n / 1000.0;
+        GD.Print(
+            $"[GameRoot] _Draw avg {avgMs:F2} ms over {_shellDrawProfileSampleCount} samples " +
+            $"(terrain_chunk_rebuild={terrainMs:F2} surface_sync={surfaceMs:F2} grid_draw={gridMs:F2}).");
         _shellDrawProfileLastAvgMs = avgMs;
+        _shellDrawProfileLastTerrainMs = terrainMs;
+        _shellDrawProfileLastSurfaceMs = surfaceMs;
+        _shellDrawProfileLastGridMs = gridMs;
         _shellDrawProfileAccumUsec = 0;
+        _shellTerrainRebuildAccumUsec = 0;
+        _shellSurfaceSyncAccumUsec = 0;
+        _shellGridDrawAccumUsec = 0;
         _shellDrawProfileSampleCount = 0;
     }
 
@@ -1366,6 +1468,7 @@ public partial class GameRoot : Node2D, IWasdMovementRates
                 }
 
                 slice.Set(x, y, t with { Flags = (byte)(t.Flags | TileFlags.Blocked) });
+                MarkTerrainChunkDirtyAt(x, y, slice);
                 placed++;
             }
         }
@@ -1440,7 +1543,8 @@ public partial class GameRoot : Node2D, IWasdMovementRates
             $"World map {_world.Map.Width}×{_world.Map.Height} cells — WASD to move";
         _shellHud.SetBootText(
             $"{mapLine}\nWASD — hold to move (smooth repeat; release to stop)   |   Movement sliders — right preset panel   |   Wheel / = - / keypad +/- — zoom   |   E / Enter — link   |   [ ] / PgUp/PgDn — floor   |   F5 — debug   |   Ctrl+Z — undo config   |   ESC — pause / Quit");
-        _shellHud.SetRevisionReadout($"REV {ShellFeatureRevision}");
+        _shellHud.SetRevisionReadout($"REV {ShellFeatureRevision}  |  {FormatTerrainHudTag()}");
+
         _shellHud.SyncMapPresetUi(ShellEffectiveLandPercent, ShellEffectiveSeed,
             ShellEffectiveOriginPatchChebyshevRadius, ShellCanApplyLandPercentPreset);
         _shellHud.SyncWasdMovementSlidersFromGameRoot();
@@ -2093,102 +2197,156 @@ public partial class GameRoot : Node2D, IWasdMovementRates
     /// <summary>Rounds to the nearest hundredth (two decimal places) for HUD display.</summary>
     private static string FormatWorldCoord(float v) => v.ToString("F2", CultureInfo.InvariantCulture);
 
-    private void DisposeTerrainBakeCache()
+    private bool EffectiveTerrainUseSprites() => _shell.TerrainUseSprites && _terrainAtlasLoaded;
+
+    private string FormatTerrainHudTag()
     {
-        if (_terrainBakeTexture is not null)
+        if (!_shell.TerrainUseSprites)
         {
-            _terrainBakeTexture.Dispose();
-            _terrainBakeTexture = null;
+            return "TERR CLR";
         }
+
+        return EffectiveTerrainUseSprites()
+            ? $"TERR SPR ({_terrainAtlas.LoadDiagnostics})"
+            : $"TERR CLR (want SPR, {_terrainAtlas.LoadDiagnostics})";
     }
 
-    private bool TerrainBakeMatches(FloorSlice floor, int minGx, int maxGx, int minGy, int maxGy)
+    private void SyncTerrainChunks(FloorSlice floor, int minGx, int maxGx, int minGy, int maxGy, Vector2 origin)
     {
-        if (_terrainBakeTexture is null)
+        if (_terrainFloorLayer is null || _world is null)
         {
-            return false;
-        }
-
-        if (_terrainBakeMinGx != minGx || _terrainBakeMaxGx != maxGx || _terrainBakeMinGy != minGy ||
-            _terrainBakeMaxGy != maxGy)
-        {
-            return false;
-        }
-
-        if (_terrainBakeFloorZ != floor.Z)
-        {
-            return false;
-        }
-
-        if (!Mathf.IsEqualApprox(_terrainBakeCellSizePx, _cellSizePx))
-        {
-            return false;
-        }
-
-        return Mathf.IsEqualApprox(_terrainBakeZoom.X, _zoom.X) && Mathf.IsEqualApprox(_terrainBakeZoom.Y, _zoom.Y);
-    }
-
-    private void RebuildTerrainBakeTexture(FloorSlice floor, Vector2 origin, int minGx, int maxGx, int minGy, int maxGy)
-    {
-        DisposeTerrainBakeCache();
-
-        var wCells = maxGx - minGx + 1;
-        var hCells = maxGy - minGy + 1;
-        if (wCells <= 0 || hCells <= 0)
-        {
-            _terrainBakeScreenRect = default;
             return;
         }
 
-        var topLeft = CellRectGlobal(minGx, maxGy, floor, origin).Position;
-        var screenW = wCells * _cellSizePx;
-        var screenH = hCells * _cellSizePx;
-        _terrainBakeScreenRect = new Rect2(topLeft, new Vector2(screenW, screenH));
-
-        var imgW = Mathf.Max(1, Mathf.CeilToInt(screenW));
-        var imgH = Mathf.Max(1, Mathf.CeilToInt(screenH));
-        var img = Image.CreateEmpty(imgW, imgH, false, Image.Format.Rgba8);
-
-        var sub = Mathf.Clamp(TerrainContourSubdivisions, 1, 8);
-        var eval = _world.TerrainEvaluator;
-        var terrainCfg = _world.Map.TerrainConfig;
-
-        for (var gy = minGy; gy <= maxGy; gy++)
+        if (_terrainSyncedFloorZ != floor.Z)
         {
-            for (var gx = minGx; gx <= maxGx; gx++)
+            _terrainFloorLayer.ClearAll();
+            _terrainSyncedFloorZ = floor.Z;
+        }
+
+        Image? atlasImage = null;
+        var useSprites = EffectiveTerrainUseSprites() && _terrainAtlas.TryGetAtlasImage(out atlasImage);
+        var ctx = new TerrainChunkRebuildContext(
+            floor,
+            _world.TerrainEvaluator,
+            _world.Map.TerrainConfig,
+            ShellEffectiveSeed,
+            _cellSizePx,
+            useSprites,
+            _terrainAtlas,
+            atlasImage,
+            _shell.TerrainWaterAnimate,
+            (long)Time.GetTicksMsec(),
+            _shell.TerrainTransitionsEnabled);
+
+        _terrainFloorLayer.SyncVisible(
+            floor,
+            minGx,
+            maxGx,
+            minGy,
+            maxGy,
+            ctx,
+            (f, gx, gy) => CellRectGlobal(gx, gy, f, origin).Position);
+    }
+
+    private void OnEntityStoreChanged(EntityRecord record)
+    {
+        if (_world is null || record.Z != _world.ActorZ)
+            return;
+
+        if (_world.Map.TryGetFloor(record.Z, out var floor) && floor is not null)
+            MarkMapCellDirty(record.X, record.Y, floor);
+        else
+            QueueRedraw();
+    }
+
+    private void MarkTerrainChunkDirtyAt(int gx, int gy, FloorSlice floor) =>
+        MarkMapCellDirty(gx, gy, floor);
+
+    private void MarkSurfaceChunkDirtyAt(int gx, int gy, FloorSlice floor) =>
+        MarkMapCellDirty(gx, gy, floor);
+
+    /// <summary>Marks terrain and decor chunks in a 3×3 neighborhood for margin / seam correctness.</summary>
+    private void MarkMapCellDirty(int gx, int gy, FloorSlice floor)
+    {
+        floor.ResolveChunkCoordinates(gx, gy, out var cx, out var cy);
+        for (var dcy = -1; dcy <= 1; dcy++)
+        {
+            for (var dcx = -1; dcx <= 1; dcx++)
             {
-                var cell = CellRectGlobal(gx, gy, floor, origin);
-                var rx = cell.Position.X - topLeft.X;
-                var ry = cell.Position.Y - topLeft.Y;
-                var sw = cell.Size.X / sub;
-                var sh = cell.Size.Y / sub;
-                for (var iy = 0; iy < sub; iy++)
-                {
-                    for (var ix = 0; ix < sub; ix++)
-                    {
-                        var fx = rx + ix * sw;
-                        var fy = ry + iy * sh;
-                        var pw = Mathf.Max(1, Mathf.CeilToInt(fx + sw) - Mathf.FloorToInt(fx));
-                        var ph = Mathf.Max(1, Mathf.CeilToInt(fy + sh) - Mathf.FloorToInt(fy));
-                        var r = new Rect2I(Mathf.FloorToInt(fx), Mathf.FloorToInt(fy), pw, ph);
-                        var tile = floor.Get(gx, gy);
-                        var worldX = gx + (ix + 0.5f) / sub;
-                        var worldY = gy + (sub - 1 - iy + 0.5f) / sub;
-                        var rgb = TerrainVisualColor.AtWorld(worldX, worldY, tile, eval, terrainCfg);
-                        img.FillRect(r, new Color(rgb.R, rgb.G, rgb.B, 1f));
-                    }
-                }
+                _terrainFloorLayer?.MarkChunkDirty(cx + dcx, cy + dcy);
+                _surfaceFloorLayer?.MarkChunkDirty(cx + dcx, cy + dcy);
             }
         }
 
-        _terrainBakeTexture = ImageTexture.CreateFromImage(img);
-        _terrainBakeMinGx = minGx;
-        _terrainBakeMaxGx = maxGx;
-        _terrainBakeMinGy = minGy;
-        _terrainBakeMaxGy = maxGy;
-        _terrainBakeFloorZ = floor.Z;
-        _terrainBakeZoom = _zoom;
-        _terrainBakeCellSizePx = _cellSizePx;
+        QueueRedraw();
+    }
+
+    private void MarkDebugEntityChunksDirty(FloorSlice floor0)
+    {
+        if (floor0.Contains(3, 3))
+            MarkMapCellDirty(3, 3, floor0);
+        if (floor0.Contains(5, 4))
+            MarkMapCellDirty(5, 4, floor0);
+        if (floor0.Contains(2, 6))
+            MarkMapCellDirty(2, 6, floor0);
+    }
+
+    private void SyncSurfaceLayers(FloorSlice floor, int minGx, int maxGx, int minGy, int maxGy, Vector2 origin)
+    {
+        if (_surfaceFloorLayer is null || _world is null)
+            return;
+
+        Image? decorImage = null;
+        if (_decorAtlasLoaded)
+            _decorAtlas.TryGetAtlasImage(out decorImage);
+
+        Image? entityImage = null;
+        if (_entityAtlasLoaded)
+            _entityCatalog.TryGetAtlasImage(out entityImage);
+
+        var decorOn = _shell.DecorEnabled && _decorAtlasLoaded;
+        var decorMultimesh = decorOn && _shell.DecorUseMultimesh;
+        var ctx = new SurfaceChunkRebuildContext(
+            floor,
+            _world.Entities,
+            _world.TerrainEvaluator,
+            _world.Map.TerrainConfig,
+            ShellEffectiveSeed,
+            _world.ActorZ,
+            _cellSizePx,
+            decorOn,
+            decorMultimesh,
+            _decorAtlas,
+            decorImage,
+            _entityCatalog,
+            entityImage,
+            (fx, fy) => GridCenterWorld(fx, fy, floor, origin),
+            (f, gx, gy) => CellRectGlobal(gx, gy, f, origin).Position);
+
+        _surfaceFloorLayer.SyncVisible(floor, minGx, maxGx, minGy, maxGy, ctx);
+    }
+
+    private static void SeedDebugSurfaceEntities(FloorSlice floor0, WorldState world)
+    {
+        if (!floor0.Contains(3, 3))
+            return;
+
+        world.Entities.Spawn(EntityKinds.Prop, 3, 3, 0);
+        if (floor0.Contains(5, 4))
+            world.Entities.Spawn(EntityKinds.Prop, 5, 4, 0, subCellX: 8, subCellY: 8);
+        if (floor0.Contains(2, 6))
+            world.Entities.Spawn(EntityKinds.Prop, 2, 6, 0);
+    }
+
+    /// <summary>World position at fractional grid coordinates (cell center when fx/fy end in .5).</summary>
+    private Vector2 GridCenterWorld(float globalX, float globalY, FloorSlice floor, Vector2 gridOriginTopLeft)
+    {
+        var lx = globalX - floor.MinX;
+        var ly = globalY - floor.MinY;
+        var px = gridOriginTopLeft.X + lx * _cellSizePx + _cellSizePx * 0.5f;
+        var py = gridOriginTopLeft.Y + (floor.Height - ly) * _cellSizePx - _cellSizePx * 0.5f;
+        return new Vector2(px, py);
     }
 
     /// <summary>Axis-aligned rect for global cell <paramref name="globalX"/>, <paramref name="globalY"/>; north-up Y flip via local row (see architecture.md).</summary>
