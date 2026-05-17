@@ -11,7 +11,7 @@ namespace SpecialPG;
 public sealed class EntitySpriteCatalog
 {
     public const string AtlasResourcePath = "res://art/entities/entity_atlas.png";
-    public const int TilePixelSize = 32;
+    public const int TilePixelSize = 64;
 
     private readonly Dictionary<ushort, Rect2I> _regions = new();
     private Image? _atlasImage;

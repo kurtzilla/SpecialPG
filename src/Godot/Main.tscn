@@ -566,6 +566,8 @@ script = ExtResource("3_overlay")
 [node name="Interaction3D" type="Node3D" parent="."]
 script = ExtResource("2_ray")
 
+[node name="Prop3D" type="Node3D" parent="Interaction3D"]
+
 [node name="Camera3D" type="Camera3D" parent="Interaction3D"]
 projection = 1
 size = 12.0

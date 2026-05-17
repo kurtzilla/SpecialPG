@@ -1,7 +1,7 @@
 ﻿# Shell Feature Revision Log
 
-Revision: 57
-TimestampUtc: 2026-05-17T00:00:00.0000000Z
+Revision: 61
+TimestampUtc: 2026-05-17T00:13:04.0155645Z
 
 Highlights:
 - config.ini shell tuning; Camera2D + discrete WASD sub-tile steps; zoom (wheel, =/-, keypad); upper-right world XY (2 decimals).
@@ -51,4 +51,8 @@ Highlights:
 - REV 54: Split shell draw profiling; decor sprite pool + optional MultiMesh; animated water; terrain-art-import doc.
 - REV 55: Neighbor chunk dirty fan-out; TileDrawOp sort; surface/entity dirty hooks on tile edit and EntityStore.
 - REV 56: TileTransitionPlanner Side sprites; two-pass chunk rasterize; transition atlas strips.
-- REV 57: Water animation marks only water chunks dirty; terrain_transitions_enabled config; water anim default off; transition planner category grid; removed HUD MarkAllDirty.
+- REV 57: Terrain perf — scoped water-chunk dirty; terrain_transitions_enabled; water anim default off; no HUD MarkAllDirty.
+- REV 58: Factorio-aligned 64px/tile — cell_size_px, terrain/decor/entity atlases, placeholder regen.
+- REV 59: Kenney CC0 2D atlases + kenney-asset-pipeline doc + pack_kenney_2d_atlases.py.
+- REV 60: Kenney 3D props — Prop3DLayer, decor_use_3d, import_kenney_3d_props.py.
+- REV 61: Stable center-based terrain cull + persist margin; camera follows authoritative foot (fixes turn pop).

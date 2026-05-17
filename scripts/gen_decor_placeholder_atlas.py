@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate res://art/decor/decor_atlas.png (8× 32px decor variants)."""
+"""Generate res://art/decor/decor_atlas.png (8× 64px decor variants)."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import zlib
 from pathlib import Path
 
 VARIANTS = 8
-TILE = 32
+TILE = 64
 WIDTH = VARIANTS * TILE
 HEIGHT = TILE
 OUT = Path(__file__).resolve().parents[1] / "src" / "Godot" / "art" / "decor" / "decor_atlas.png"

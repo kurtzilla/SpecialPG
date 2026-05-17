@@ -10,7 +10,7 @@ namespace SpecialPG;
 public sealed class DecorAtlasCatalog
 {
     public const string AtlasResourcePath = "res://art/decor/decor_atlas.png";
-    public const int TilePixelSize = 32;
+    public const int TilePixelSize = 64;
     public const int VariantCount = 8;
 
     private readonly Dictionary<int, Rect2I> _regions = new();

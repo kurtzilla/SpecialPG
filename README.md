@@ -45,6 +45,10 @@ For launch-vs-attach context and hot-reload notes, read **[docs/debugging.md](do
 
 The project enables [`src/Godot/addons/external_debug_attach`](src/Godot/addons/external_debug_attach): editor toolbar **Run + Attach Debug** and autoload `DebugWait` coordinate with a small local service (see addon README).
 
+## Art assets (Kenney CC0)
+
+Local Kenney bundles are **not** in git. Rebuild committed atlases and 3D props from `D:\source\KenneyAssets` (or set `KENNEY_ASSETS_ROOT`): see **[docs/kenney-asset-pipeline.md](docs/kenney-asset-pipeline.md)**.
+
 ## Environment files
 
 Copy [`.env/.env.example`](.env/.env.example) to another file under `.env/` for local-only values. Everything in `.env/` is ignored by git except `.env.example`.

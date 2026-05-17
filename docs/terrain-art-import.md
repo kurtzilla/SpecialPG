@@ -1,5 +1,7 @@
 # Terrain and surface art import
 
+**Kenney CC0 packs:** see [kenney-asset-pipeline.md](kenney-asset-pipeline.md) for source paths, rebuild commands, and what is committed vs kept local.
+
 Godot atlases used by the shell live under:
 
 | Path | Purpose |
@@ -33,4 +35,4 @@ Water rows in the terrain atlas use four variant columns as animation frames whe
 
 ## Hand-authored art
 
-When replacing placeholders, keep tile sizes aligned with [`TerrainAtlasCatalog`](../src/Godot/Terrain/TerrainAtlasCatalog.cs) (32px 1×1, 64px 2×2, 128px 4×4 per category band). A future JSON rect catalog is out of scope for the current rollout.
+When replacing placeholders, keep tile sizes aligned with [`TerrainAtlasCatalog`](../src/Godot/Terrain/TerrainAtlasCatalog.cs) (Factorio-style **64px** 1×1, **128px** 2×2, **256px** 4×4 per category band; `cell_size_px=64` in config). A future JSON rect catalog is out of scope for the current rollout.

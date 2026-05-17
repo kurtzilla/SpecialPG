@@ -9,12 +9,14 @@ from pathlib import Path
 
 VARIANTS = 4
 CATEGORIES = 10
-STRIP_1X1 = 32
-STRIP_2X2 = 64
-STRIP_4X4 = 128
-STRIP_SIDE = 32
+# Factorio-style: 64px per 1×1 tile, 128px 2×2, 256px 4×4
+TILE = 64
+STRIP_1X1 = TILE
+STRIP_2X2 = TILE * 2
+STRIP_4X4 = TILE * 4
+STRIP_SIDE = TILE
 BAND_HEIGHT = STRIP_1X1 + STRIP_2X2 + STRIP_4X4 + STRIP_SIDE
-WIDTH = VARIANTS * 128
+WIDTH = VARIANTS * STRIP_4X4
 HEIGHT = CATEGORIES * BAND_HEIGHT
 
 ROW_COLORS: list[tuple[int, int, int]] = [
@@ -92,29 +94,30 @@ def variant_dot(pixels: bytearray, width: int, x: int, y: int, variant: int) -> 
 
 def main() -> None:
     pixels = bytearray(WIDTH * HEIGHT * 4)
+    checker_cell = TILE // 2
     for row in range(CATEGORIES):
         base = ROW_COLORS[row]
         band_y = row * BAND_HEIGHT
         is_water = row in (0, 1)
         for v in range(VARIANTS):
             shade = (0.72 + v * 0.09) if is_water else (1.0 - v * 0.06)
-            x1, y1 = v * 32, band_y
-            fill_rect(pixels, WIDTH, x1, y1, 32, 32, base, shade)
-            stroke_rect_border(pixels, WIDTH, x1, y1, 32, 32, 2)
+            x1, y1 = v * STRIP_1X1, band_y
+            fill_rect(pixels, WIDTH, x1, y1, STRIP_1X1, STRIP_1X1, base, shade)
+            stroke_rect_border(pixels, WIDTH, x1, y1, STRIP_1X1, STRIP_1X1, 2)
             variant_dot(pixels, WIDTH, x1, y1, v)
-            x2 = v * 64
+            x2 = v * STRIP_2X2
             y2 = band_y + STRIP_1X1
             for py in range(STRIP_2X2):
                 for px in range(STRIP_2X2):
-                    s = checker_subshade(px, py, shade, 16)
+                    s = checker_subshade(px, py, shade, checker_cell)
                     fill_rect(pixels, WIDTH, x2 + px, y2 + py, 1, 1, base, s)
             stroke_rect_border(pixels, WIDTH, x2, y2, STRIP_2X2, STRIP_2X2, 2)
             variant_dot(pixels, WIDTH, x2, y2, v)
-            x4 = v * 128
+            x4 = v * STRIP_4X4
             y4 = band_y + STRIP_1X1 + STRIP_2X2
             for py in range(STRIP_4X4):
                 for px in range(STRIP_4X4):
-                    s = checker_subshade(px, py, shade, 16)
+                    s = checker_subshade(px, py, shade, checker_cell)
                     fill_rect(pixels, WIDTH, x4 + px, y4 + py, 1, 1, base, s)
             stroke_rect_border(pixels, WIDTH, x4, y4, STRIP_4X4, STRIP_4X4, 3)
             variant_dot(pixels, WIDTH, x4, y4, v)

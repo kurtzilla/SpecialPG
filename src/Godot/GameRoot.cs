@@ -20,9 +20,12 @@ public partial class GameRoot : Node2D, IWasdMovementRates
     private const string ShellRevisionLogPath = "res://../../docs/shell-feature-revision-log.md";
 
     /// <summary>Bump when you add user-visible shell behavior; add a line to <see cref="ShellFeatureChangelogLines"/>.</summary>
-    private const int ShellFeatureRevision = 57;
+    private const int ShellFeatureRevision = 61;
 
     private const int StartupZoomNudgeFloorCellSpan = 512;
+
+    /// <summary>Extra cells retained around the last terrain redraw window (reduces pops when turning).</summary>
+    private const int TerrainCullPersistMarginCells = 2;
 
     private static readonly string[] ShellFeatureChangelogLines =
     {
@@ -74,6 +77,10 @@ public partial class GameRoot : Node2D, IWasdMovementRates
         "REV 55: Neighbor chunk dirty fan-out; TileDrawOp sort; surface/entity dirty hooks on tile edit and EntityStore.",
         "REV 56: TileTransitionPlanner Side sprites; two-pass chunk rasterize; transition atlas strips.",
         "REV 57: Terrain perf — scoped water-chunk dirty; terrain_transitions_enabled; water anim default off; no HUD MarkAllDirty.",
+        "REV 58: Factorio-aligned 64px/tile — cell_size_px, terrain/decor/entity atlases, placeholder regen.",
+        "REV 59: Kenney CC0 2D atlases + kenney-asset-pipeline doc + pack_kenney_2d_atlases.py.",
+        "REV 60: Kenney 3D props — Prop3DLayer, decor_use_3d, import_kenney_3d_props.py.",
+        "REV 61: Stable center-based terrain cull + persist margin; camera follows authoritative foot (fixes turn pop).",
     };
 
     private static readonly Color GridLineColor = new(0.085f, 0.09f, 0.105f, 0.81f);
@@ -81,7 +88,7 @@ public partial class GameRoot : Node2D, IWasdMovementRates
     private ShellAppConfig _shell = null!;
     private float _runtimeWasdStepsPerSecond;
     private int _runtimeWasdMaxSubStepsPerPhysicsFrame;
-    private float _cellSizePx = 32f;
+    private float _cellSizePx = 64f;
     private float _activeRenderScale = 1.0f;
     private int _activeMaxFps;
     private int _activeVsyncMode = -1;
@@ -124,6 +131,9 @@ public partial class GameRoot : Node2D, IWasdMovementRates
     private bool _entityAtlasLoaded;
     private TerrainFloorLayer? _terrainFloorLayer;
     private SurfaceFloorLayer? _surfaceFloorLayer;
+    private Prop3DLayer? _prop3DLayer;
+    private readonly Prop3DCatalog _prop3DCatalog = new();
+    private bool _prop3DCatalogLoaded;
     private int _terrainSyncedFloorZ = int.MinValue;
 
     private WorldState _world = null!;
@@ -346,6 +356,24 @@ public partial class GameRoot : Node2D, IWasdMovementRates
         InitShellDrawProfiling();
 
         var parent = GetParent();
+        _prop3DCatalogLoaded = _prop3DCatalog.TryLoad();
+        var interaction3D = parent?.GetNodeOrNull<InteractionRay3D>("Interaction3D");
+        if (interaction3D is not null)
+        {
+            _prop3DLayer = interaction3D.GetNodeOrNull<Prop3DLayer>("Prop3D");
+            if (_prop3DLayer is null)
+            {
+                _prop3DLayer = new Prop3DLayer { Name = "Prop3D" };
+                interaction3D.AddChild(_prop3DLayer);
+            }
+        }
+
+        if (_shell.DecorUse3d && !_prop3DCatalogLoaded)
+        {
+            GD.PushWarning(
+                $"[GameRoot] decor_use_3d=true but 3D prop manifest failed ({_prop3DCatalog.LoadDiagnostics}).");
+        }
+
         _shellHud = parent?.GetNodeOrNull<ShellHudLayer>("ShellUi/ShellHudRoot");
         if (_shellHud is null)
         {
@@ -732,7 +760,7 @@ public partial class GameRoot : Node2D, IWasdMovementRates
 
         TickWasdDiscreteMovement(delta);
 
-        _camera2D.Position = _shellPlayer.Position;
+        UpdateCameraFromShellPlayer();
         _camera2D.Zoom = _zoom;
 
         var zoomed = float.IsNaN(_lastPhysicsRedrawZoom.X) || _lastPhysicsRedrawZoom != _zoom;
@@ -749,12 +777,7 @@ public partial class GameRoot : Node2D, IWasdMovementRates
                            || TerrainCullExceedsLastDrawnWindow(minGx, maxGx, minGy, maxGy);
             if (terrainDirty)
             {
-                _haveLastRedrawCullCells = true;
-                _lastRedrawCullActorZ = _world.ActorZ;
-                _lastRedrawCullMinGx = minGx;
-                _lastRedrawCullMaxGx = maxGx;
-                _lastRedrawCullMinGy = minGy;
-                _lastRedrawCullMaxGy = maxGy;
+                PersistLastRedrawCullWindow(floor, minGx, maxGx, minGy, maxGy);
             }
         }
 
@@ -827,6 +850,7 @@ public partial class GameRoot : Node2D, IWasdMovementRates
         _terrainSyncedFloorZ = int.MinValue;
         _terrainFloorLayer?.ClearAll();
         _surfaceFloorLayer?.ClearAll();
+        _prop3DLayer?.ClearAll();
     }
 
     public override void _UnhandledInput(InputEvent @event)
@@ -947,9 +971,9 @@ public partial class GameRoot : Node2D, IWasdMovementRates
     {
         var profileStartUsec = _shellDrawProfileEnabled ? Time.GetTicksUsec() : 0UL;
 
-        if (_camera2D is not null && _shellPlayer is not null)
+        if (_camera2D is not null)
         {
-            _camera2D.Position = _shellPlayer.Position;
+            UpdateCameraFromShellPlayer();
             _camera2D.Zoom = _zoom;
         }
 
@@ -957,6 +981,7 @@ public partial class GameRoot : Node2D, IWasdMovementRates
         {
             _terrainFloorLayer?.ClearAll();
             _surfaceFloorLayer?.ClearAll();
+        _prop3DLayer?.ClearAll();
             RecordShellDrawProfileSample(profileStartUsec);
             return;
         }
@@ -1558,9 +1583,9 @@ public partial class GameRoot : Node2D, IWasdMovementRates
             return;
         }
 
-        if (_camera2D is not null && _shellPlayer is not null)
+        if (_camera2D is not null)
         {
-            _camera2D.Position = _shellPlayer.Position;
+            UpdateCameraFromShellPlayer();
             _camera2D.Zoom = _zoom;
         }
 
@@ -1862,43 +1887,75 @@ public partial class GameRoot : Node2D, IWasdMovementRates
         || minGy < _lastRedrawCullMinGy
         || maxGy > _lastRedrawCullMaxGy;
 
-    /// <summary>Bounding global cell indices for <paramref name="visible"/> using the same north-up mapping as <see cref="WorldToCellFloor"/>.</summary>
+    /// <summary>
+    /// Global cell window from viewport center and half-extent (stable when turning).
+    /// Corner AABB cull used to expand by a full row/column on ~30° heading changes and queue heavy redraws.
+    /// </summary>
     private void GetVisibleGlobalCellBounds(FloorSlice floor, Rect2 visible, out int minGx, out int maxGx, out int minGy,
         out int maxGy)
     {
-        var corners = new[]
+        var centerCell = WorldToCellFloor(visible.GetCenter(), floor);
+        var halfCellsX = Mathf.CeilToInt(visible.Size.X / (2f * _cellSizePx)) + 1;
+        var halfCellsY = Mathf.CeilToInt(visible.Size.Y / (2f * _cellSizePx)) + 1;
+        minGx = centerCell.X - halfCellsX;
+        maxGx = centerCell.X + halfCellsX;
+        minGy = centerCell.Y - halfCellsY;
+        maxGy = centerCell.Y + halfCellsY;
+        ClampCullToFloorBounds(floor, ref minGx, ref maxGx, ref minGy, ref maxGy);
+    }
+
+    private void PersistLastRedrawCullWindow(FloorSlice floor, int minGx, int maxGx, int minGy, int maxGy)
+    {
+        _haveLastRedrawCullCells = true;
+        _lastRedrawCullActorZ = _world.ActorZ;
+        InflateCullWindow(floor, ref minGx, ref maxGx, ref minGy, ref maxGy, TerrainCullPersistMarginCells);
+        _lastRedrawCullMinGx = minGx;
+        _lastRedrawCullMaxGx = maxGx;
+        _lastRedrawCullMinGy = minGy;
+        _lastRedrawCullMaxGy = maxGy;
+    }
+
+    private static void InflateCullWindow(
+        FloorSlice floor,
+        ref int minGx,
+        ref int maxGx,
+        ref int minGy,
+        ref int maxGy,
+        int marginCells)
+    {
+        minGx -= marginCells;
+        maxGx += marginCells;
+        minGy -= marginCells;
+        maxGy += marginCells;
+        ClampCullToFloorBounds(floor, ref minGx, ref maxGx, ref minGy, ref maxGy);
+    }
+
+    private static void ClampCullToFloorBounds(
+        FloorSlice floor,
+        ref int minGx,
+        ref int maxGx,
+        ref int minGy,
+        ref int maxGy)
+    {
+        var fx0 = floor.MinX;
+        var fx1 = floor.MinX + floor.Width - 1;
+        var fy0 = floor.MinY;
+        var fy1 = floor.MinY + floor.Height - 1;
+        minGx = Mathf.Clamp(minGx, fx0, fx1);
+        maxGx = Mathf.Clamp(maxGx, fx0, fx1);
+        minGy = Mathf.Clamp(minGy, fy0, fy1);
+        maxGy = Mathf.Clamp(maxGy, fy0, fy1);
+    }
+
+    /// <summary>Camera tracks discrete Core foot; <see cref="ShellPlayer"/> sprite still lerps for smoothness.</summary>
+    private void UpdateCameraFromShellPlayer()
+    {
+        if (_camera2D is null || _shellPlayer is null)
         {
-            visible.Position,
-            new Vector2(visible.Position.X + visible.Size.X, visible.Position.Y),
-            new Vector2(visible.Position.X, visible.Position.Y + visible.Size.Y),
-            visible.Position + visible.Size
-        };
-        var c0 = WorldToCellFloor(corners[0], floor);
-        minGx = maxGx = c0.X;
-        minGy = maxGy = c0.Y;
-        for (var i = 1; i < corners.Length; i++)
-        {
-            var c = WorldToCellFloor(corners[i], floor);
-            if (c.X < minGx)
-            {
-                minGx = c.X;
-            }
-
-            if (c.X > maxGx)
-            {
-                maxGx = c.X;
-            }
-
-            if (c.Y < minGy)
-            {
-                minGy = c.Y;
-            }
-
-            if (c.Y > maxGy)
-            {
-                maxGy = c.Y;
-            }
+            return;
         }
+
+        _camera2D.Position = _shellPlayer.AuthoritativeFootWorld;
     }
 
     private Vector2 CellCenterWorld(int cellX, int cellY, FloorSlice floor)
@@ -2325,6 +2382,25 @@ public partial class GameRoot : Node2D, IWasdMovementRates
             (f, gx, gy) => CellRectGlobal(gx, gy, f, origin).Position);
 
         _surfaceFloorLayer.SyncVisible(floor, minGx, maxGx, minGy, maxGy, ctx);
+
+        var prop3dOn = _shell.DecorUse3d && _shell.DecorEnabled && _prop3DCatalogLoaded;
+        _prop3DLayer?.SyncVisible(
+            floor,
+            minGx,
+            maxGx,
+            minGy,
+            maxGy,
+            prop3dOn,
+            _prop3DCatalog,
+            _world.TerrainEvaluator,
+            _world.Map.TerrainConfig,
+            ShellEffectiveSeed,
+            _cellSizePx,
+            (fx, fy) =>
+            {
+                var c = GridCenterWorld(fx, fy, floor, origin);
+                return new Vector3(c.X, 0f, c.Y);
+            });
     }
 
     private static void SeedDebugSurfaceEntities(FloorSlice floor0, WorldState world)

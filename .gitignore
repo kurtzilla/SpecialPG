@@ -38,3 +38,6 @@ Desktop.ini
 # Local secrets: ignore everything under .env/ except the tracked example
 .env/*
 !.env/.env.example
+
+# Kenney pack script extract cache (sources stay under KENNEY_ASSETS_ROOT)
+.kenney_extract/

@@ -1,0 +1,76 @@
+{
+  "schema": 1,
+  "license": "CC0",
+  "attribution": "Kenney (https://kenney.nl)",
+  "kenney_assets_root_default": "D:/source/KenneyAssets",
+  "packs": {
+    "nature_kit_kga2": {
+      "license_file": "Kenney Game Assets 2 version 22/3D assets/Nature Kit (320 assets)/License.txt",
+      "sprites_topdown_zip": "Kenney Game Assets 2 version 22/3D assets/Nature Kit (320 assets)/sprites_topdown.zip",
+      "gltf_dir": "Kenney Game Assets 2 version 22/3D assets/Nature Kit (320 assets)/Models/glTF format"
+    },
+    "weapon_pack_kga2": {
+      "license_file": "Kenney Game Assets 2 version 22/3D assets/Weapon Pack (100 assets)/License.txt",
+      "gltf_dir": "Kenney Game Assets 2 version 22/3D assets/Weapon Pack (100 assets)/Models/GLTF format",
+      "sprites_render_dir": "Kenney Game Assets 2 version 22/3D assets/Weapon Pack (100 assets)/Sprites/Render"
+    }
+  },
+  "decor_atlas": {
+    "tile_px": 64,
+    "variants": [
+      { "index": 0, "pack": "nature_kit_kga2", "file": "tree_default.png", "note": "extracted from sprites_topdown.zip" },
+      { "index": 1, "pack": "nature_kit_kga2", "file": "tree_pine_tall.png" },
+      { "index": 2, "pack": "nature_kit_kga2", "file": "plant_bush.png" },
+      { "index": 3, "pack": "nature_kit_kga2", "file": "rock_large1.png" },
+      { "index": 4, "pack": "nature_kit_kga2", "file": "flower_red1.png" },
+      { "index": 5, "pack": "nature_kit_kga2", "file": "mushroom_red.png" },
+      { "index": 6, "pack": "nature_kit_kga2", "file": "grass_dense.png" },
+      { "index": 7, "pack": "nature_kit_kga2", "file": "treeStump.png" }
+    ]
+  },
+  "terrain_atlas_main1x1": {
+    "tile_px": 64,
+    "categories": [
+      { "category": "DeepWater", "variant": 0, "pack": "nature_kit_kga2", "file": "lily_large.png" },
+      { "category": "ShallowWater", "variant": 0, "pack": "nature_kit_kga2", "file": "lily_small.png" },
+      { "category": "Coast", "variant": 0, "pack": "nature_kit_kga2", "file": "ground_dirtRiverBanks.png" },
+      { "category": "Land", "variant": 0, "pack": "nature_kit_kga2", "file": "grass.png" },
+      { "category": "Hill", "variant": 0, "pack": "nature_kit_kga2", "file": "ground_dirt.png" },
+      { "category": "Blocked", "variant": 0, "pack": "nature_kit_kga2", "file": "cliffGrey_block.png" }
+    ],
+    "fill_remaining_variants_from_category_land": true
+  },
+  "entity_atlas": {
+    "tile_px": 64,
+    "slots": [
+      { "kind": "Actor", "pack": "weapon_pack_kga2", "file": "pistol.png" },
+      { "kind": "Prop", "pack": "weapon_pack_kga2", "file": "shotgun.png" }
+    ]
+  },
+  "props_3d": [
+    {
+      "id": "nature_tree_default",
+      "pack": "nature_kit_kga2",
+      "gltf": "tree_default.gltf",
+      "scale": 1.0,
+      "y_offset": 0.0,
+      "decor_variant": 0
+    },
+    {
+      "id": "nature_rock_large",
+      "pack": "nature_kit_kga2",
+      "gltf": "rock_large1.gltf",
+      "scale": 0.85,
+      "y_offset": 0.0,
+      "decor_variant": 3
+    },
+    {
+      "id": "weapon_pistol",
+      "pack": "weapon_pack_kga2",
+      "gltf": "pistol.glb",
+      "scale": 1.2,
+      "y_offset": 0.05,
+      "entity_kind": "Prop"
+    }
+  ]
+}

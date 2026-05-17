@@ -7,7 +7,7 @@ import struct
 import zlib
 from pathlib import Path
 
-TILE = 32
+TILE = 64
 # Prop, Actor (debug prop only; player is ShellPlayer)
 WIDTH = 2 * TILE
 HEIGHT = TILE

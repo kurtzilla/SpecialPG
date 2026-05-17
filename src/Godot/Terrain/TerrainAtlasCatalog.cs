@@ -30,7 +30,8 @@ public sealed class TerrainAtlasCatalog
 
     public const string AtlasResourcePath = "res://art/terrain/terrain_atlas.png";
 
-    public const int TilePixelSize = 32;
+    /// <summary>Factorio-style 1×1 terrain tile graphic size in atlas pixels.</summary>
+    public const int TilePixelSize = 64;
 
     public const int VariantsPerCategory = 4;
 
@@ -38,15 +39,15 @@ public sealed class TerrainAtlasCatalog
 
     /// <summary>Per-category band: 1×1 + 2×2 + 4×4 + Side transition strip (pixels).</summary>
 
-    public const int CategoryBandHeight = 256;
+    public const int CategoryBandHeight = TilePixelSize + TilePixelSize * 2 + TilePixelSize * 4 + TilePixelSize;
 
-    public const int TransitionStripHeight = 32;
+    public const int TransitionStripHeight = TilePixelSize;
 
-    private const int Strip1x1Height = 32;
+    private const int Strip1x1Height = TilePixelSize;
 
-    private const int Strip2x2Height = 64;
+    private const int Strip2x2Height = TilePixelSize * 2;
 
-    private const int Strip4x4Height = 128;
+    private const int Strip4x4Height = TilePixelSize * 4;
 
 
 
@@ -258,11 +259,11 @@ public sealed class TerrainAtlasCatalog
 
                 _regions[new TileSpriteKey(category, TileSpriteRole.Main2x2, v)] =
 
-                    new Rect2I(v * 64, bandY + Strip1x1Height, 64, Strip2x2Height);
+                    new Rect2I(v * Strip2x2Height, bandY + Strip1x1Height, Strip2x2Height, Strip2x2Height);
 
                 _regions[new TileSpriteKey(category, TileSpriteRole.Main4x4, v)] =
 
-                    new Rect2I(v * 128, bandY + Strip1x1Height + Strip2x2Height, 128, 128);
+                    new Rect2I(v * Strip4x4Height, bandY + Strip1x1Height + Strip2x2Height, Strip4x4Height, Strip4x4Height);
 
                 for (var f = 0; f < 4; f++)
                 {

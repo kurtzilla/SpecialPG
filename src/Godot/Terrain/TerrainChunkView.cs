@@ -9,7 +9,7 @@ namespace SpecialPG;
 public partial class TerrainChunkView : Node2D
 {
     /// <summary>Bump when main or transition planners change to invalidate cached textures.</summary>
-    public const int TerrainPlannerVersion = 2;
+    public const int TerrainPlannerVersion = 3;
 
     private Sprite2D? _sprite;
     private ImageTexture? _texture;
