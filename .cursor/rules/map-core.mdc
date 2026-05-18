@@ -1,0 +1,22 @@
+---
+description: Core map simulation, integrity, seeds, and test requirements
+globs: src/Core/Maps/**,tests/SpecialPG.Core.Tests/**
+alwaysApply: false
+---
+
+# Core maps and tests
+
+Read [docs/agent-pitfalls.md](../../docs/agent-pitfalls.md) and the matching section of [docs/architecture.md](../../docs/architecture.md) before changing traversal, generation, or planners.
+
+## Rules
+
+- **No Godot types** in `src/Core`.
+- Seeds: deterministic — use [`NoiseSeedUtility`](../../src/Core/Maps/Noise/NoiseSeedUtility.cs); do not use `HashCode` for seed derivation.
+- [`MapIntegrity`](../../src/Core/Maps/MapIntegrity.cs): respect vertical-link and floor connectivity rules; use `ValidateModification` / `ValidateVerticalLink` for local edits where applicable.
+
+## Tests
+
+- New traversal, planner, or mask behavior → add or extend tests in `tests/SpecialPG.Core.Tests`.
+- Run `dotnet test` before claiming done.
+
+Existing regression coverage examples: `TileTransitionPlannerTests`, `TileMainPatchPlannerTests`.

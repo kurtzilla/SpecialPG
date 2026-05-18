@@ -8,8 +8,8 @@ namespace SpecialPG;
 /// <summary>One floor chunk's baked terrain texture in grid space.</summary>
 public partial class TerrainChunkView : Node2D
 {
-    /// <summary>Bump when main or transition planners change to invalidate cached textures.</summary>
-    public const int TerrainPlannerVersion = 3;
+    /// <summary>Bump when main patch planner changes to invalidate cached textures.</summary>
+    public const int TerrainPlannerVersion = 4;
 
     private Sprite2D? _sprite;
     private ImageTexture? _texture;
@@ -25,9 +25,7 @@ public partial class TerrainChunkView : Node2D
     private int _cachedTerrainPlannerVersion = int.MinValue;
     private int _cachedWaterAnimFrame = int.MinValue;
     private bool _cachedWaterAnimate;
-    private bool _cachedTransitionsEnabled;
     private readonly List<TileDrawOp> _mainOpsScratch = new();
-    private readonly List<TileDrawOp> _transitionOpsScratch = new();
 
     public int ChunkX { get; private set; } = int.MinValue;
     public int ChunkY { get; private set; } = int.MinValue;
@@ -87,10 +85,8 @@ public partial class TerrainChunkView : Node2D
             ctx.Catalog,
             ctx.AtlasImage,
             _mainOpsScratch,
-            _transitionOpsScratch,
             ctx.WaterAnimate,
-            ctx.AnimationTimeMs,
-            ctx.TransitionsEnabled);
+            ctx.AnimationTimeMs);
 
         UpdateContainsWater();
 
@@ -98,6 +94,7 @@ public partial class TerrainChunkView : Node2D
         _texture = ImageTexture.CreateFromImage(img);
         img.Dispose();
         _sprite.Texture = _texture;
+        _sprite.Scale = ctx.UseSprites ? Vector2.One : new Vector2(ctx.CellSizePx, ctx.CellSizePx);
 
         _cachedFloorZ = ctx.Floor.Z;
         _cachedCx = ChunkX;
@@ -109,7 +106,6 @@ public partial class TerrainChunkView : Node2D
         _cachedWorldSeed = ctx.WorldSeed;
         _cachedTerrainPlannerVersion = TerrainPlannerVersion;
         _cachedWaterAnimate = ctx.WaterAnimate;
-        _cachedTransitionsEnabled = ctx.TransitionsEnabled;
         _cachedWaterAnimFrame = ctx.WaterAnimate
             ? TerrainWaterAnimation.GetGlobalFrameIndex(ctx.AnimationTimeMs)
             : int.MinValue;
@@ -164,7 +160,6 @@ public partial class TerrainChunkView : Node2D
                && _cachedWorldSeed == ctx.WorldSeed
                && _cachedTerrainPlannerVersion == TerrainPlannerVersion
                && _cachedWaterAnimate == ctx.WaterAnimate
-               && _cachedTransitionsEnabled == ctx.TransitionsEnabled
                && (!_cachedWaterAnimate || _cachedWaterAnimFrame == TerrainWaterAnimation.GetGlobalFrameIndex(ctx.AnimationTimeMs));
     }
 }

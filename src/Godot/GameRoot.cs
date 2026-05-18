@@ -7,6 +7,7 @@ using System.Text;
 using Godot;
 using SpecialPG;
 using SpecialPG.Core.Maps;
+using SpecialPG.Core.Maps.Noise;
 using SpecialPG.Core.Maps.Rendering;
 using CoreTileCell = SpecialPG.Core.Maps.TileCell;
 
@@ -604,38 +605,31 @@ public partial class GameRoot : Node2D, IWasdMovementRates
         originGx = Mathf.Clamp(0, floor0.MinX, floor0.MinX + floor0.Width - 1);
         originGy = Mathf.Clamp(0, floor0.MinY, floor0.MinY + floor0.Height - 1);
         var terrainCfg = _world.Map.TerrainConfig;
-        var originWalkable = TileTraversal.IsWalkable(floor0.Get(originGx, originGy), terrainCfg);
-        var subTileViable =
-            IsSubTileSpawnViable(_world.Map, _world.ActorZ, originGx, originGy, _world.TerrainEvaluator);
-        var onLargestLandmass = LandmassSpawnSupport.IsWalkableOnLargestLandmass(floor0, terrainCfg, originGx, originGy);
 
-        if (originWalkable && subTileViable && onLargestLandmass)
+        if (map.ProceduralLandmassAligned)
         {
-            _world.SetActorCellFromShell(originGx, originGy, _world.ActorZ);
+            if (!TrySpawnAtGlobalOrigin(floor0, originGx, originGy, terrainCfg))
+            {
+                GD.PrintErr(
+                    "[GameRoot] Procedural landmass alignment failed at global (0,0); falling back to LCC spawn search.");
+                SpawnAtLargestLandmassNearCenter(floor0, terrainCfg, originGx, originGy);
+            }
         }
         else
         {
-            var centerGx = floor0.MinX + floor0.Width / 2;
-            var centerGy = floor0.MinY + floor0.Height / 2;
-            if (!TryFindWalkableSpawnNearCenter(floor0, centerGx, centerGy, out var walkGx, out var walkGy))
+            var originWalkable = TileTraversal.IsWalkable(floor0.Get(originGx, originGy), terrainCfg);
+            var subTileViable =
+                IsSubTileSpawnViable(_world.Map, _world.ActorZ, originGx, originGy, _world.TerrainEvaluator);
+            var onLargestLandmass =
+                LandmassSpawnSupport.IsWalkableOnLargestLandmass(floor0, terrainCfg, originGx, originGy);
+
+            if (originWalkable && subTileViable && onLargestLandmass)
             {
-                GD.PrintErr(
-                    "[GameRoot] No walkable cell near map center; origin (0,0) not viable; actor left at clamped spawn.");
+                _world.SetActorCellFromShell(originGx, originGy, _world.ActorZ);
             }
             else
             {
-                if (originWalkable && subTileViable && !onLargestLandmass)
-                {
-                    GD.Print(
-                        $"[GameRoot] Origin ({originGx},{originGy}) walkable but not on largest landmass; spawned on LCC near center at ({walkGx},{walkGy}).");
-                }
-                else
-                {
-                    GD.Print(
-                        $"[GameRoot] Origin ({originGx},{originGy}) not viable; spawned on largest landmass near center at ({walkGx},{walkGy}).");
-                }
-
-                _world.SetActorCellFromShell(walkGx, walkGy, _world.ActorZ);
+                SpawnAtLargestLandmassNearCenter(floor0, terrainCfg, originGx, originGy);
             }
         }
 
@@ -2138,35 +2132,122 @@ public partial class GameRoot : Node2D, IWasdMovementRates
         return false;
     }
 
-    /// <summary>
-    /// Spawn cell qualifies when the spawn sub-cell, all 4 cardinal sub-neighbors, and at least 16 of 25 sub-cells
-    /// in a 5x5 window centered on the tile center pass <see cref="SubTileTraversal.IsWalkable"/>.
-    /// </summary>
-    private static bool IsSubTileSpawnViable(WorldMap map, int z, int gx, int gy, ITerrainEvaluator eval)
+    /// <summary>Spawns at global (0,0) with a viable sub-tile foot position inside that cell only.</summary>
+    private bool TrySpawnAtGlobalOrigin(FloorSlice floor, int originGx, int originGy, in TerrainNoiseConfig terrainCfg)
     {
-        var c = SubTileGrid.CenterSub;
-        if (!SubTileTraversal.IsWalkable(map, z, gx, gy, c, c, eval))
+        if (!TileTraversal.IsWalkable(floor.Get(originGx, originGy), terrainCfg))
         {
+            GD.Print(
+                $"[GameRoot] Global origin ({originGx},{originGy}) is not tile-walkable after procedural alignment.");
             return false;
         }
 
-        if (!IsSubCellWalkableAcrossTiles(map, z, gx, gy, c + 1, c, eval) ||
-            !IsSubCellWalkableAcrossTiles(map, z, gx, gy, c - 1, c, eval) ||
-            !IsSubCellWalkableAcrossTiles(map, z, gx, gy, c, c + 1, eval) ||
-            !IsSubCellWalkableAcrossTiles(map, z, gx, gy, c, c - 1, eval))
+        if (!LandmassSpawnSupport.IsWalkableOnLargestLandmass(floor, terrainCfg, originGx, originGy))
         {
+            GD.Print(
+                $"[GameRoot] Global origin ({originGx},{originGy}) is not on the largest landmass after alignment.");
             return false;
         }
+
+        if (TryFindViableSubTileAtCell(_world.Map, _world.ActorZ, originGx, originGy, _world.TerrainEvaluator,
+                out var subX, out var subY))
+        {
+            _world.SetActorCellFromShell(originGx, originGy, _world.ActorZ, subX, subY);
+            return true;
+        }
+
+        GD.Print(
+            $"[GameRoot] Global origin ({originGx},{originGy}) is walkable but no viable sub-tile foot in-cell.");
+        return false;
+    }
+
+    private void SpawnAtLargestLandmassNearCenter(FloorSlice floor, in TerrainNoiseConfig terrainCfg, int originGx,
+        int originGy)
+    {
+        var centerGx = floor.MinX + floor.Width / 2;
+        var centerGy = floor.MinY + floor.Height / 2;
+        if (!TryFindWalkableSpawnNearCenter(floor, centerGx, centerGy, out var walkGx, out var walkGy))
+        {
+            GD.PrintErr(
+                "[GameRoot] No walkable cell near map center; origin (0,0) not viable; actor left at clamped spawn.");
+            return;
+        }
+
+        var originWalkable = TileTraversal.IsWalkable(floor.Get(originGx, originGy), terrainCfg);
+        if (originWalkable && (walkGx != originGx || walkGy != originGy))
+        {
+            GD.Print(
+                $"[GameRoot] Origin ({originGx},{originGy}) not viable; spawned on largest landmass near center at ({walkGx},{walkGy}).");
+        }
+
+        _world.SetActorCellFromShell(walkGx, walkGy, _world.ActorZ);
+    }
+
+    /// <summary>
+    /// Spawn cell qualifies when the foot sub-cell, its 4 cardinal sub-neighbors, and at least 16 of 25 sub-cells
+    /// in a 5×5 window centered on the foot pass <see cref="SubTileTraversal.IsWalkable"/>.
+    /// </summary>
+    private static bool IsSubTileSpawnViable(WorldMap map, int z, int gx, int gy, ITerrainEvaluator eval) =>
+        IsSubTileSpawnViableAt(map, z, gx, gy, SubTileGrid.CenterSub, SubTileGrid.CenterSub, eval);
+
+    private static bool TryFindViableSubTileAtCell(
+        WorldMap map,
+        int z,
+        int gx,
+        int gy,
+        ITerrainEvaluator eval,
+        out int subX,
+        out int subY)
+    {
+        subX = SubTileGrid.CenterSub;
+        subY = SubTileGrid.CenterSub;
+        if (IsSubTileSpawnViableAt(map, z, gx, gy, SubTileGrid.CenterSub, SubTileGrid.CenterSub, eval))
+            return true;
+
+        for (var sy = 0; sy < SubTileGrid.Resolution; sy++)
+        {
+            for (var sx = 0; sx < SubTileGrid.Resolution; sx++)
+            {
+                if (sx == SubTileGrid.CenterSub && sy == SubTileGrid.CenterSub)
+                    continue;
+
+                if (IsSubTileSpawnViableAt(map, z, gx, gy, sx, sy, eval))
+                {
+                    subX = sx;
+                    subY = sy;
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsSubTileSpawnViableAt(
+        WorldMap map,
+        int z,
+        int gx,
+        int gy,
+        int footSubX,
+        int footSubY,
+        ITerrainEvaluator eval)
+    {
+        if (!SubTileTraversal.IsWalkable(map, z, gx, gy, footSubX, footSubY, eval))
+            return false;
+
+        if (!IsSubCellWalkableAcrossTiles(map, z, gx, gy, footSubX + 1, footSubY, eval) ||
+            !IsSubCellWalkableAcrossTiles(map, z, gx, gy, footSubX - 1, footSubY, eval) ||
+            !IsSubCellWalkableAcrossTiles(map, z, gx, gy, footSubX, footSubY + 1, eval) ||
+            !IsSubCellWalkableAcrossTiles(map, z, gx, gy, footSubX, footSubY - 1, eval))
+            return false;
 
         var walkableCount = 0;
         for (var dsy = -2; dsy <= 2; dsy++)
         {
             for (var dsx = -2; dsx <= 2; dsx++)
             {
-                if (IsSubCellWalkableAcrossTiles(map, z, gx, gy, c + dsx, c + dsy, eval))
-                {
+                if (IsSubCellWalkableAcrossTiles(map, z, gx, gy, footSubX + dsx, footSubY + dsy, eval))
                     walkableCount++;
-                }
             }
         }
 
@@ -2293,8 +2374,7 @@ public partial class GameRoot : Node2D, IWasdMovementRates
             _terrainAtlas,
             atlasImage,
             _shell.TerrainWaterAnimate,
-            (long)Time.GetTicksMsec(),
-            _shell.TerrainTransitionsEnabled);
+            (long)Time.GetTicksMsec());
 
         _terrainFloorLayer.SyncVisible(
             floor,

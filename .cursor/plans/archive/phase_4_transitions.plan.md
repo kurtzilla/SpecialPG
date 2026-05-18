@@ -1,25 +1,28 @@
+> **STATUS: COMPLETE (REV 56, 2026-05)**  
+> Do not use as active work — see [docs/shell-feature-revision-log.md](../../../docs/shell-feature-revision-log.md) and [docs/architecture.md](../../../docs/architecture.md) § Terrain rendering (transitions).
+
 ---
 name: Phase 4 transitions
 overview: Add Factorio-style edge transitions (Side sprites first, then corners), two-pass chunk painting, neighbor-chunk dirty propagation, and margin sampling so category boundaries look continuous across 32×32 chunk seams.
 todos:
   - id: p4-groups
     content: TerrainTransitionGroup + pair rules; collapse categories for transition lookup
-    status: pending
+    status: completed
   - id: p4-planner
     content: TileTransitionPlanner (4-neighbor edges, Side ops) + unit tests
-    status: pending
+    status: completed
   - id: p4-atlas
     content: Atlas transition strips + TerrainAtlasCatalog regions for Side (4 dirs × variants)
-    status: pending
+    status: completed
   - id: p4-raster
     content: Two-pass chunk rasterize (main then transitions); transition color fallback
-    status: pending
+    status: completed
   - id: p4-dirty
     content: MarkTerrainChunkDirtyAt + neighbor chunks on boundary edits
-    status: pending
+    status: completed
   - id: p4-docs-rev52
     content: REV 52, architecture.md transition rules, shell revision log
-    status: pending
+    status: completed
 isProject: false
 ---
 

@@ -1,6 +1,8 @@
 # SpecialPG
 
-Grid-based game (Core + Shell) using the **melange view** for Shell rendering—see [`docs/melange-view-pattern.md`](docs/melange-view-pattern.md). Design rules: [`.cursor/.cursorrules.md`](.cursor/.cursorrules.md); coordinates, floors, and **Factorio-style map/chunk conventions**: [`docs/architecture.md`](docs/architecture.md). **Run / debug workflow** (no-picker F5 attach): [`docs/debugging.md`](docs/debugging.md).
+Grid-based game (Core + Shell) set in a **Rifts-inspired** post-apocalyptic Earth — product direction and phased goals: [`docs/game/vision.md`](docs/game/vision.md). Palladium rulebooks for reference live outside the repo (default `D:\source\Rifts`; see [`docs/game/rifts-source-index.md`](docs/game/rifts-source-index.md)).
+
+The Shell uses the **melange view** for rendering — see [`docs/melange-view-pattern.md`](docs/melange-view-pattern.md). Design rules: [`.cursor/.cursorrules.md`](.cursor/.cursorrules.md); coordinates, floors, and **Factorio-style map/chunk conventions**: [`docs/architecture.md`](docs/architecture.md). **Run / debug workflow** (no-picker F5 attach): [`docs/debugging.md`](docs/debugging.md).
 
 ## Prerequisites
 

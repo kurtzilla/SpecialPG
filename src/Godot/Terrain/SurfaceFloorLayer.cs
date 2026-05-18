@@ -19,13 +19,16 @@ public partial class SurfaceFloorLayer : Node2D
         AddChild(_entityLayer);
     }
 
-    public void SyncVisible(
+    public bool SyncVisible(
         FloorSlice floor,
         int minGx,
         int maxGx,
         int minGy,
         int maxGy,
-        in SurfaceChunkRebuildContext ctx)
+        in SurfaceChunkRebuildContext ctx,
+        int maxDecorChunkRebuildsPerCall = int.MaxValue,
+        ulong bakeStartUsec = 0,
+        ulong bakeTimeBudgetUsec = 0)
     {
         EnsureChildren();
 
@@ -35,8 +38,18 @@ public partial class SurfaceFloorLayer : Node2D
             _syncedFloorZ = floor.Z;
         }
 
-        _decorLayer!.SyncVisible(floor, minGx, maxGx, minGy, maxGy, ctx);
+        var decorPending = _decorLayer!.SyncVisible(
+            floor,
+            minGx,
+            maxGx,
+            minGy,
+            maxGy,
+            ctx,
+            maxDecorChunkRebuildsPerCall,
+            bakeStartUsec,
+            bakeTimeBudgetUsec);
         _entityLayer!.SyncVisible(floor, minGx, maxGx, minGy, maxGy, ctx);
+        return decorPending;
     }
 
     public void MarkChunkDirty(int cx, int cy)

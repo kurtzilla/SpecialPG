@@ -100,22 +100,23 @@ public class OriginWalkabilityPatchTests
     public void ProceduralWorldMapGenerator_includes_origin_walkable_patch()
     {
         var p = MapGenerationParameters.Create(42, 50);
-        var map = ProceduralWorldMapGenerator.BuildBoundedWorld(32, 32, 8, 8, p);
+        const int w = 32;
+        const int h = 32;
+        var map = ProceduralWorldMapGenerator.BuildBoundedWorld(w, h, 8, 8, p, minX: -(w / 2), minY: -(h / 2));
         var floor = map.GetOrCreateFloor(0);
         var cfg = map.TerrainConfig;
         var r = OriginWalkabilityPatch.DefaultChebyshevRadius;
-        var maxGx = floor.MinX + floor.Width - 1;
-        var maxGy = floor.MinY + floor.Height - 1;
-        var anchorGx = Math.Clamp(floor.MinX + floor.Width / 2, floor.MinX, maxGx);
-        var anchorGy = Math.Clamp(floor.MinY + floor.Height / 2, floor.MinY, maxGy);
-        var gx0 = Math.Max(floor.MinX, anchorGx - r);
-        var gx1 = Math.Min(maxGx, anchorGx + r);
-        var gy0 = Math.Max(floor.MinY, anchorGy - r);
-        var gy1 = Math.Min(maxGy, anchorGy + r);
-        for (var gy = gy0; gy <= gy1; gy++)
+        const int originGx = 0;
+        const int originGy = 0;
+        for (var dy = -r; dy <= r; dy++)
         {
-            for (var gx = gx0; gx <= gx1; gx++)
+            for (var dx = -r; dx <= r; dx++)
             {
+                if (Math.Max(Math.Abs(dx), Math.Abs(dy)) > r)
+                    continue;
+
+                var gx = originGx + dx;
+                var gy = originGy + dy;
                 var t = floor.Get(gx, gy);
                 Assert.True(TileTraversal.IsWalkable(t, cfg), $"origin neighborhood ({gx},{gy})");
             }

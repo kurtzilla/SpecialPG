@@ -39,6 +39,8 @@ public partial class DecorChunkView : Node2D
 
     public void MarkDirty() => _dirty = true;
 
+    public bool NeedsRebuild(in SurfaceChunkRebuildContext ctx) => _dirty || !MatchesCache(ctx);
+
     public void RebuildIfDirty(in SurfaceChunkRebuildContext ctx)
     {
         if (!_dirty && MatchesCache(ctx))

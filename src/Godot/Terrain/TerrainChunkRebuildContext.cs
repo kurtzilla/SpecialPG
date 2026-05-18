@@ -18,8 +18,7 @@ public readonly struct TerrainChunkRebuildContext
         TerrainAtlasCatalog catalog,
         Image? atlasImage,
         bool waterAnimate,
-        long animationTimeMs,
-        bool transitionsEnabled)
+        long animationTimeMs)
     {
         Floor = floor;
         Evaluator = evaluator;
@@ -31,7 +30,6 @@ public readonly struct TerrainChunkRebuildContext
         AtlasImage = atlasImage;
         WaterAnimate = waterAnimate;
         AnimationTimeMs = animationTimeMs;
-        TransitionsEnabled = transitionsEnabled;
     }
 
     public FloorSlice Floor { get; }
@@ -53,6 +51,4 @@ public readonly struct TerrainChunkRebuildContext
     public bool WaterAnimate { get; }
 
     public long AnimationTimeMs { get; }
-
-    public bool TransitionsEnabled { get; }
 }

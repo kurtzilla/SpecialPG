@@ -5,8 +5,8 @@ extends Node
 ## For GDScript projects, this provides a configurable startup delay
 ## to allow time for the debugger to be ready
 
-## Maximum time to wait (in seconds)
-@export var max_wait_seconds: float = 5.0
+## Maximum time to wait (in seconds) when a debugger is attached
+@export var max_wait_seconds: float = 2.0
 
 var _wait_label: Label
 var _elapsed_seconds: float = 0.0
@@ -16,8 +16,17 @@ func _ready() -> void:
 	if not OS.is_debug_build():
 		print("[DebugWait] Release build - skipping wait")
 		return
+
+	if not EngineDebugger.is_active():
+		print("[DebugWait] No debugger attached - skipping wait (press F5 with attach to use delay)")
+		return
+
+	var skip_wait := OS.get_environment("SPECIALPG_SKIP_DEBUG_WAIT")
+	if skip_wait == "1" or skip_wait.to_lower() == "true":
+		print("[DebugWait] SPECIALPG_SKIP_DEBUG_WAIT set - skipping wait")
+		return
 	
-	# For GDScript, we just provide a short delay for debugger readiness
+	# Short delay so external debugger attach can catch _Ready breakpoints
 	print("[DebugWait] Waiting for debugger to be ready...")
 	print("[DebugWait] (Press ESC in game window to skip)")
 	

@@ -39,6 +39,8 @@ public partial class ShellHudLayer : Control
     private MapWorkbenchPanel _mapWorkbench = null!;
     private HSlider _hudWasdStepsSlider = null!;
     private HSlider _hudWasdBurstSlider = null!;
+    private Label _hudWasdStepsLabel = null!;
+    private Label _hudWasdBurstLabel = null!;
     private bool _hudWasdSliderQuiet;
     private Label _mapLandWaterLabel = null!;
     private HSlider _landPctSlider = null!;
@@ -88,6 +90,10 @@ public partial class ShellHudLayer : Control
         _mapGenBtn.Pressed += OnMapGeneratorPressed;
         _mapEditorBtn.Pressed += OnMapEditorPressed;
 
+        _hudWasdStepsLabel = GetNode<Label>(
+            "RightPresetStack/PresetPanelRoot/Margin/VBox/MovementPresetPanel/Margin/VBox/HudWasdStepsLabel");
+        _hudWasdBurstLabel = GetNode<Label>(
+            "RightPresetStack/PresetPanelRoot/Margin/VBox/MovementPresetPanel/Margin/VBox/HudWasdBurstLabel");
         _hudWasdStepsSlider = GetNode<HSlider>(
             "RightPresetStack/PresetPanelRoot/Margin/VBox/MovementPresetPanel/Margin/VBox/HudWasdStepsSlider");
         _hudWasdBurstSlider = GetNode<HSlider>(
@@ -208,6 +214,9 @@ public partial class ShellHudLayer : Control
                 _hudWasdStepsSlider.Value = _gridRoot.ShellRuntimeWasdStepsPerSecond;
                 _hudWasdBurstSlider.Value = _gridRoot.ShellRuntimeWasdMaxSubStepsPerPhysicsFrame;
             }
+
+            UpdateHudWasdStepsLabel((float)_hudWasdStepsSlider.Value);
+            UpdateHudWasdBurstLabel(Mathf.RoundToInt((float)_hudWasdBurstSlider.Value));
         }
         finally
         {
@@ -259,6 +268,24 @@ public partial class ShellHudLayer : Control
         }
     }
 
+    private void UpdateHudWasdStepsLabel(float stepsPerSecond)
+    {
+        stepsPerSecond = ShellAppConfig.ClampWasdStepsPerSecond(stepsPerSecond);
+        var max = ShellAppConfig.MaxWasdStepsPerSecond;
+        var cellPx = _gridRoot?.ShellCellSizePixels ?? 64f;
+        var approxPxPerS = stepsPerSecond * (cellPx / SubTileGrid.Resolution);
+        _hudWasdStepsLabel.Text =
+            $"WASD steps/s: {stepsPerSecond:F0}  (~{approxPxPerS:F0} px/s)  [1–{max}]";
+    }
+
+    private void UpdateHudWasdBurstLabel(int maxSubSteps)
+    {
+        maxSubSteps = ShellAppConfig.ClampWasdMaxSubStepsPerPhysicsFrame(maxSubSteps);
+        var max = ShellAppConfig.MaxWasdSubStepsPerPhysicsFrame;
+        _hudWasdBurstLabel.Text =
+            $"Max steps per physics tick: {maxSubSteps}  [1–{max}]";
+    }
+
     private void OnLandPercentSliderChanged(double value)
     {
         UpdateMapLandWaterLabel(Mathf.RoundToInt((float)value));
@@ -272,14 +299,15 @@ public partial class ShellHudLayer : Control
     private void UpdateStartAreaPatchLabel(int radiusCells)
     {
         radiusCells = Mathf.Clamp(radiusCells, 0, ShellAppConfig.MaxStartupOriginPatchChebyshevRadius);
+        var max = ShellAppConfig.MaxStartupOriginPatchChebyshevRadius;
         _startAreaPatchLabel.Text =
-            $"Flat land patch radius {radiusCells} (map center + global 0,0)";
+            $"Flat land patch radius: {radiusCells} cells  [0–{max}]  (map center + global 0,0)";
     }
 
     private void UpdateMapLandWaterLabel(int landPct)
     {
         landPct = Mathf.Clamp(landPct, 0, 100);
-        _mapLandWaterLabel.Text = $"Land {landPct}% — Water {100 - landPct}%";
+        _mapLandWaterLabel.Text = $"Land {landPct}% — Water {100 - landPct}%  [0–100%]";
     }
 
     private void OnApplyMapLandPressed()
@@ -399,8 +427,9 @@ public partial class ShellHudLayer : Control
         resume.GrabFocus();
     }
 
-    private void OnHudWasdStepsSliderChanged(double _)
+    private void OnHudWasdStepsSliderChanged(double value)
     {
+        UpdateHudWasdStepsLabel((float)value);
         if (_hudWasdSliderQuiet)
         {
             return;
@@ -409,8 +438,9 @@ public partial class ShellHudLayer : Control
         ApplyHudWasdFromSliders();
     }
 
-    private void OnHudWasdBurstSliderChanged(double _)
+    private void OnHudWasdBurstSliderChanged(double value)
     {
+        UpdateHudWasdBurstLabel(Mathf.RoundToInt((float)value));
         if (_hudWasdSliderQuiet)
         {
             return;

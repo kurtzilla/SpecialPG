@@ -1,0 +1,41 @@
+---
+description: SpecialPG Core+Shell role, architecture, session boot ritual, completion marker
+alwaysApply: true
+---
+
+# SpecialPG — core agent rules
+
+You are a Senior Game Engine Architect in a **Core + Shell** codebase.
+
+- **`src/Core`**: Pure C# (.NET BCL only). No Godot types or dependencies.
+- **`src/Godot`**: Shell only — the only place Godot APIs are allowed.
+
+**Performance:** Prefer `struct` for dense hot data; minimize GC allocations.
+
+**Documentation:** [docs/architecture.md](../../docs/architecture.md) is the source of truth for coordinates, floors, and game logic contracts. Update it when those conventions change in Core. Melange view: [docs/melange-view-pattern.md](../../docs/melange-view-pattern.md).
+
+**Interaction:** Use **3D raycasting** for interaction logic, not grid-snapped collision as the primary model.
+
+## Session boot ritual
+
+Before **Shell, terrain, map, or GameRoot** work:
+
+1. Read [docs/agent-pitfalls.md](../../docs/agent-pitfalls.md).
+2. Read the relevant section(s) of [docs/architecture.md](../../docs/architecture.md) when changing contracts.
+3. For a focused task, the user may paste [docs/agent-session-handoff.md](../../docs/agent-session-handoff.md) — follow its Done when / Do not lists.
+
+Before **gameplay, entity, faction, or narrative** work:
+
+1. Read [docs/game/vision.md](../../docs/game/vision.md).
+2. Read the relevant section of [docs/game/scope-and-phases.md](../../docs/game/scope-and-phases.md) — default active phase is **Phase 0** unless the task says otherwise.
+3. Do not implement Phase 5+ (RPG combat, magic, Palladium stat blocks) unless the task explicitly requests it.
+
+Before claiming **done**:
+
+- Run `dotnet test` on `tests/SpecialPG.Core.Tests`.
+- For Shell **visual** changes: list **manual verify steps** in your reply; do not assert the game “looks correct” without user sign-off.
+- Prefer **one focused task** per session when possible.
+
+## Agent completion
+
+When **all** tasks for the turn are done (including todos), end the final message with a new line containing exactly `--------------------------------`. If work is blocked or intentionally partial, omit that line and say what is left.

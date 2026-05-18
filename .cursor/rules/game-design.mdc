@@ -1,0 +1,26 @@
+---
+description: Game vision, phased scope, entity/interaction design — Rifts hybrid
+globs: docs/game/**,src/Core/Maps/Entity*.cs,src/Core/**/Interaction/**
+alwaysApply: false
+---
+
+# Game design (SpecialPG)
+
+Read [docs/game/vision.md](../../docs/game/vision.md) and the matching section of [docs/game/scope-and-phases.md](../../docs/game/scope-and-phases.md).
+
+## Precedence
+
+| Question | Wins |
+|----------|------|
+| Coordinates, saves, map integrity | [architecture.md](../../docs/architecture.md) |
+| Should this feature exist **now**? | [scope-and-phases.md](../../docs/game/scope-and-phases.md) |
+| Setting tone and factions | [vision.md](../../docs/game/vision.md) |
+
+## Rules
+
+- **Phase 0–1** is the default implementation window unless the task names a higher phase.
+- Do not paste Palladium PDF rule text into the repo — use [rifts-source-index.md](../../docs/game/rifts-source-index.md) (`RIFTS_SOURCE_ROOT`).
+- Faction/region **labels** in data are OK; full stat blocks and combat math are Phase 5+.
+- Shell/terrain bugfixes do not require game vision unless they change player-facing meaning.
+
+See also [agent-pitfalls.md](../../docs/agent-pitfalls.md) § Scope creep.

@@ -12,13 +12,17 @@ public partial class DecorFloorLayer : Node2D
     private readonly DecorChunkPool _pool = new();
     private readonly HashSet<(int Cx, int Cy)> _dirtyChunks = new();
 
-    public void SyncVisible(
+    /// <inheritdoc cref="TerrainFloorLayer.SyncVisible"/>
+    public bool SyncVisible(
         FloorSlice floor,
         int minGx,
         int maxGx,
         int minGy,
         int maxGy,
-        in SurfaceChunkRebuildContext ctx)
+        in SurfaceChunkRebuildContext ctx,
+        int maxChunkRebuildsPerCall = int.MaxValue,
+        ulong bakeStartUsec = 0,
+        ulong bakeTimeBudgetUsec = 0)
     {
         floor.ResolveChunkCoordinates(minGx, minGy, out var cx0, out var cy0);
         floor.ResolveChunkCoordinates(maxGx, maxGy, out var cx1, out var cy1);
@@ -33,6 +37,16 @@ public partial class DecorFloorLayer : Node2D
             for (var cx = cx0; cx <= cx1; cx++)
                 needed.Add((cx, cy));
         }
+
+        var centerCx = (cx0 + cx1) / 2;
+        var centerCy = (cy0 + cy1) / 2;
+        var neededOrdered = new List<(int Cx, int Cy)>(needed);
+        neededOrdered.Sort((a, b) =>
+        {
+            var da = (a.Cx - centerCx) * (a.Cx - centerCx) + (a.Cy - centerCy) * (a.Cy - centerCy);
+            var db = (b.Cx - centerCx) * (b.Cx - centerCx) + (b.Cy - centerCy) * (b.Cy - centerCy);
+            return da.CompareTo(db);
+        });
 
         var toRelease = new List<(int Cx, int Cy)>();
         foreach (var key in _active.Keys)
@@ -50,7 +64,10 @@ public partial class DecorFloorLayer : Node2D
             _pool.Release(view);
         }
 
-        foreach (var (cx, cy) in needed)
+        var rebuilds = 0;
+        var unlimited = maxChunkRebuildsPerCall <= 0 || maxChunkRebuildsPerCall == int.MaxValue;
+
+        foreach (var (cx, cy) in neededOrdered)
         {
             if (!_active.TryGetValue((cx, cy), out var view))
             {
@@ -69,9 +86,44 @@ public partial class DecorFloorLayer : Node2D
             if (_dirtyChunks.Contains((cx, cy)))
                 view.MarkDirty();
 
-            view.RebuildIfDirty(ctx);
-            _dirtyChunks.Remove((cx, cy));
+            if (view.NeedsRebuild(ctx))
+            {
+                var overCountBudget = !unlimited && rebuilds >= maxChunkRebuildsPerCall;
+                var overTimeBudget = bakeTimeBudgetUsec > 0
+                                     && bakeStartUsec > 0
+                                     && Time.GetTicksUsec() - bakeStartUsec >= bakeTimeBudgetUsec;
+                if (!overCountBudget && !overTimeBudget)
+                {
+                    view.RebuildIfDirty(ctx);
+                    rebuilds++;
+                    _dirtyChunks.Remove((cx, cy));
+                }
+                else
+                {
+                    view.MarkDirty();
+                    _dirtyChunks.Add((cx, cy));
+                }
+            }
+            else
+            {
+                _dirtyChunks.Remove((cx, cy));
+            }
         }
+
+        foreach (var key in neededOrdered)
+        {
+            if (_dirtyChunks.Contains(key))
+            {
+                return true;
+            }
+
+            if (_active.TryGetValue(key, out var pendingView) && pendingView.NeedsRebuild(ctx))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public void MarkChunkDirty(int cx, int cy) => _dirtyChunks.Add((cx, cy));

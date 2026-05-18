@@ -1,6 +1,20 @@
 # SpecialPG architecture
 
-This document is the **source of truth** for coordinate conventions, floor slicing, and map connectivity. If game logic in `src/Core` changes any of these rules, update this file first (see `.cursor/.cursorrules.md`).
+This document is the **source of truth** for coordinate conventions, floor slicing, and map connectivity. If game logic in `src/Core` changes any of these rules, update this file first (see `.cursor/rules/specialpg-core.mdc` and `.cursor/.cursorrules.md`).
+
+## Agent guidance
+
+| Doc | Role |
+|-----|------|
+| **This file** (`architecture.md`) | **Contracts** — how the system must behave |
+| [agent-pitfalls.md](agent-pitfalls.md) | **Regressions** — common agent mistakes, verify steps, pointers to code |
+| [agent-session-handoff.md](agent-session-handoff.md) | **Per-session** copy-paste template for focused agent tasks |
+| [game/vision.md](game/vision.md) | **Product direction** — what the game is and phased goals |
+| `.cursor/rules/*.mdc` | Cursor rules (boot ritual, terrain/map scoped hints) |
+
+Agents: read pitfalls before Shell/terrain work; run `dotnet test` on `tests/SpecialPG.Core.Tests` before claiming done. Shell visuals require manual user sign-off.
+
+For gameplay, factions, entities, or narrative features, read [game/vision.md](game/vision.md) and [game/scope-and-phases.md](game/scope-and-phases.md). Do **not** implement Phase 5+ mechanics (RPG combat, magic, Palladium stat blocks) unless the task explicitly says so.
 
 **Rendering direction:** Shell presentation follows the **melange view** (orthographic top-down + tall / three-quarter readability). See [melange-view-pattern.md](melange-view-pattern.md), [visual-direction-guide.md](visual-direction-guide.md), and [view-rendering-discussion.md](view-rendering-discussion.md).
 
@@ -21,13 +35,13 @@ This document is the **source of truth** for coordinate conventions, floor slici
 
 **Third-party art:** Kenney CC0 integration (2D atlases + optional 3D props) is documented in [kenney-asset-pipeline.md](kenney-asset-pipeline.md).
 
-**Player view:** Color bake by default; enable `terrain_use_sprites` in config (restart) for atlas blit bake. **`terrain_water_animate`** (default **off**) cycles water via staggered atlas variant columns; when on, only **water-bearing** visible chunks are marked dirty each ~200 ms frame (REV 57). **`terrain_transitions_enabled`** (default **on**) toggles `TileTransitionPlanner` on chunk bake for profiling. **`decor_use_multimesh`** batches decor into one `MultiMeshInstance2D` per chunk (optional). Atlas import rules: [`terrain-art-import.md`](terrain-art-import.md).
+**Player view:** Color bake by default; enable `terrain_use_sprites` in config (restart) for atlas blit bake. **`terrain_water_animate`** (default **off**) cycles water via staggered atlas variant columns; when on, only **water-bearing** visible chunks are marked dirty each ~200 ms frame (REV 57). **`decor_use_multimesh`** batches decor into one `MultiMeshInstance2D` per chunk (optional). Tile transitions and per-pixel shoreline were **removed** from the shell bake path (main patches only). Atlas import rules: [`terrain-art-import.md`](terrain-art-import.md).
 
 **Phase 6 (polish):** Split **`profile_shell_draw`** metrics (terrain chunk rebuild / surface sync / grid). [`DecorSpritePool`](../src/Godot/Terrain/DecorSpritePool.cs) reuses decor `Sprite2D` nodes. [`TerrainWaterAnimation`](../src/Core/Maps/Rendering/TerrainWaterAnimation.cs) drives water frames in Core + shell bake. **Deferred:** elevation/moisture LUT shader on chunk sprites (replace per-pixel `TerrainVisualColor` resample) unless color-mode bake profiles hot.
 
 **Data flow:** `FloorSlice` tile → [`TileMainPatchPlanner`](../src/Core/Maps/Rendering/TileMainPatchPlanner.cs) → `TileDrawOp` list → per-chunk CPU rasterize → `Sprite2D` texture (see [`TerrainChunkRasterizer`](../src/Godot/Terrain/TerrainChunkRasterizer.cs)). [`TileSpriteResolver`](../src/Core/Maps/Rendering/TileSpriteResolver.cs) remains the 1×1 helper and shared `MakeMainOp` factory.
 
-**Phase 4 (transitions):** [`TileTransitionPlanner`](../src/Core/Maps/Rendering/TileTransitionPlanner.cs) emits `Side` ops on Water↔Ground and Ground↔Blocked boundaries; [`TerrainChunkRasterizer`](../src/Godot/Terrain/TerrainChunkRasterizer.cs) paints main ops then transitions. Tile edits mark a **3×3 chunk neighborhood** dirty (terrain + decor) via `MarkMapCellDirty`. [`EntityStore.EntityChanged`](../src/Core/Maps/EntityStore.cs) triggers surface refresh + `QueueRedraw`.
+**Tile edits:** mark a **3×3 chunk neighborhood** dirty (terrain + decor) via `MarkMapCellDirty`. [`EntityStore.EntityChanged`](../src/Core/Maps/EntityStore.cs) triggers surface refresh + `QueueRedraw`. [`TileTransitionPlanner`](../src/Core/Maps/Rendering/TileTransitionPlanner.cs) remains in Core for tests but is **not** called from the shell rasterizer.
 
 **Main patches (Phase 3):** [`TileMainPatchPlanner`](../src/Core/Maps/Rendering/TileMainPatchPlanner.cs) places non-overlapping `Main4x4`, `Main2x2`, and `Main1x1` ops over each planning rectangle. Anchors use global grid alignment (`gx % 4 == 0` for 4×4, `gx % 2 == 0` for 2×2) so adjacent chunks pick the same patch at boundaries. An ownership grid prevents double coverage; each patch requires a uniform [`TerrainRenderCategory`](../src/Core/Maps/Rendering/TerrainRenderCategory.cs) under its cells (sampled at cell centers). Patch size at an anchor is chosen deterministically from `worldSeed` and anchor `(gx, gy)` via weighted roll (`MainPatchWeights`: 4→1, 2→2, 1→4). Chunk rebuild expands the planning rect by [`TransitionMarginCells`](../src/Godot/Terrain/TerrainChunkRasterizer.cs) (= 1) and clips painted pixels to the chunk interior. Atlas bands per category: 1×1 strip (64px), 2×2 strip (128px), 4×4 strip (256px) — Factorio-style tile art; see [`TerrainAtlasCatalog`](../src/Godot/Terrain/TerrainAtlasCatalog.cs). Default `cell_size_px=64`.
 

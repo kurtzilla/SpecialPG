@@ -1,0 +1,64 @@
+---
+
+description: Terrain chunk bake, dirty propagation, atlas — Shell + rendering Core
+
+globs: src/Godot/Terrain/**,src/Core/Maps/Rendering/**,src/Godot/GameRoot.cs,src/Godot/ShellAppConfig.cs,src/Godot/config.ini
+
+alwaysApply: false
+
+---
+
+
+
+# Terrain and Shell rendering
+
+
+
+Read [docs/agent-pitfalls.md](../../docs/agent-pitfalls.md) before editing these paths.
+
+
+
+## Chunk dirty and seams
+
+
+
+- Map/tile edits → [`MarkMapCellDirty`](../../src/Godot/GameRoot.cs) (**3×3 chunk** neighborhood for terrain + decor).
+
+- Planning uses `TransitionMarginCells` (= 1) for main-patch edge sampling; clip paint to chunk interior.
+
+- Main patch anchors: global `gx % 4 == 0` (4×4), `gx % 2 == 0` (2×2).
+
+
+
+## Raster pass order
+
+
+
+1. Main (`TileMainPatchPlanner`)
+
+2. Paint (`TerrainBakeRasterizer` — sprites or color)
+
+
+
+**Do not** wire `TileTransitionPlanner` or shoreline passes back into the shell without an explicit design pass.
+
+
+
+## Config and atlas
+
+
+
+- Restart Godot after `config.ini` terrain/visual changes (except runtime WASD sliders).
+
+- `cell_size_px=64`; atlas layout: [docs/terrain-art-import.md](../../docs/terrain-art-import.md).
+
+- Sort ops: `Layer`, then `OriginGy`, then `OriginGx` (`TileDrawOpComparer`).
+
+
+
+## Coordinates
+
+
+
+North = Core +Y = screen up; use `GetGridOrigin` / `ChunkPatchOriginY` — do not equate Godot Y with Core Y.
+

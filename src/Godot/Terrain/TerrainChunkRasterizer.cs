@@ -15,7 +15,7 @@ namespace SpecialPG;
 /// <summary>Builds a chunk-local <see cref="Image"/> for one floor chunk.</summary>
 public static class TerrainChunkRasterizer
 {
-    /// <summary>Planning margin for transition sampling at chunk edges.</summary>
+    /// <summary>Planning margin for main-patch sampling at chunk edges.</summary>
     public const int TransitionMarginCells = 1;
 
     public static Image BuildChunkImage(
@@ -30,15 +30,24 @@ public static class TerrainChunkRasterizer
         TerrainAtlasCatalog catalog,
         Image? atlasImage,
         List<TileDrawOp> mainOps,
-        List<TileDrawOp> transitionOps,
         bool waterAnimate,
-        long animationTimeMs,
-        bool transitionsEnabled)
+        long animationTimeMs)
     {
         floor.GetChunkWorldCellRange(cx, cy, out var gx0, out var gy0, out var lw, out var lh);
         var imgW = Mathf.Max(1, Mathf.CeilToInt(lw * cellSizePx));
         var imgH = Mathf.Max(1, Mathf.CeilToInt(lh * cellSizePx));
-        var img = Image.CreateEmpty(imgW, imgH, false, Image.Format.Rgba8);
+        Image img;
+        var spriteOk = useSprites && atlasImage is not null;
+        if (spriteOk)
+        {
+            img = Image.CreateEmpty(imgW, imgH, false, Image.Format.Rgba8);
+        }
+        else
+        {
+            var lowW = Mathf.Max(1, lw);
+            var lowH = Mathf.Max(1, lh);
+            img = Image.CreateEmpty(lowW, lowH, false, Image.Format.Rgba8);
+        }
 
         var planGx0 = gx0 - TransitionMarginCells;
         var planGy0 = gy0 - TransitionMarginCells;
@@ -46,12 +55,9 @@ public static class TerrainChunkRasterizer
         var planLh = lh + TransitionMarginCells * 2;
 
         mainOps.Clear();
-        transitionOps.Clear();
         var cap = Mathf.Max(4, planLw * planLh / 4);
         if (mainOps.Capacity < cap)
             mainOps.Capacity = cap;
-        if (transitionOps.Capacity < cap)
-            transitionOps.Capacity = cap;
 
         TileMainPatchPlanner.Plan(
             floor,
@@ -65,27 +71,10 @@ public static class TerrainChunkRasterizer
             TerrainAtlasCatalog.VariantsPerCategory,
             mainOps);
 
-        if (transitionsEnabled)
-        {
-            TileTransitionPlanner.Plan(
-                floor,
-                planGx0,
-                planGy0,
-                planLw,
-                planLh,
-                eval,
-                terrain,
-                worldSeed,
-                TerrainAtlasCatalog.VariantsPerCategory,
-                transitionOps);
-        }
-
         mainOps.Sort(TileDrawOpComparer.Instance);
-        transitionOps.Sort(TileDrawOpComparer.Instance);
 
-        var spriteOk = useSprites && atlasImage is not null;
-        PaintOpList(img, mainOps, gx0, gy0, lh, cellSizePx, floor, eval, terrain, worldSeed, spriteOk, catalog, atlasImage, waterAnimate, animationTimeMs);
-        PaintOpList(img, transitionOps, gx0, gy0, lh, cellSizePx, floor, eval, terrain, worldSeed, spriteOk, catalog, atlasImage, waterAnimate, animationTimeMs);
+        var paintCellSize = spriteOk ? cellSizePx : 1f;
+        PaintOpList(img, mainOps, gx0, gy0, lh, paintCellSize, floor, eval, terrain, worldSeed, spriteOk, catalog, atlasImage, waterAnimate, animationTimeMs);
 
         return img;
     }

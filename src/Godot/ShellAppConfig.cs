@@ -60,7 +60,6 @@ public sealed class ShellAppConfig
         bool decorEnabled,
         bool terrainWaterAnimate,
         bool decorUseMultimesh,
-        bool terrainTransitionsEnabled,
         bool decorUse3d,
         string kenneyAssetsRoot)
     {
@@ -89,7 +88,6 @@ public sealed class ShellAppConfig
         DecorEnabled = decorEnabled;
         TerrainWaterAnimate = terrainWaterAnimate;
         DecorUseMultimesh = decorUseMultimesh;
-        TerrainTransitionsEnabled = terrainTransitionsEnabled;
         DecorUse3d = decorUse3d;
         KenneyAssetsRoot = kenneyAssetsRoot;
     }
@@ -171,9 +169,6 @@ public sealed class ShellAppConfig
     /// <summary>When true, decor uses <see cref="MultiMeshInstance2D"/> instead of pooled <see cref="Sprite2D"/> nodes.</summary>
     public bool DecorUseMultimesh { get; }
 
-    /// <summary>When true, chunk bakes run <see cref="Core.Maps.Rendering.TileTransitionPlanner"/> (disable for profiling).</summary>
-    public bool TerrainTransitionsEnabled { get; }
-
     /// <summary>When true, spawn Kenney GLB props on the 3D pick plane at decor scatter cells.</summary>
     public bool DecorUse3d { get; }
 
@@ -186,7 +181,7 @@ public sealed class ShellAppConfig
         // Human-scale cold start (stress tests: raise in config.ini or enable large_map_mode).
         const int defW = 256;
         const int defH = 256;
-        const float defWasdStepsPerSecond = 14f;
+        const float defWasdStepsPerSecond = 42f;
         const int defWasdMaxSubStepsPerPhysicsFrame = 16;
         const float defZMin = 0.35f;
         const float defZMax = 1.75f;
@@ -208,7 +203,6 @@ public sealed class ShellAppConfig
         const bool defDecorEnabled = true;
         const bool defTerrainWaterAnimate = false;
         const bool defDecorUseMultimesh = false;
-        const bool defTerrainTransitionsEnabled = true;
         const bool defDecorUse3d = false;
         const string defKenneyAssetsRoot = @"D:\source\KenneyAssets";
 
@@ -221,7 +215,7 @@ public sealed class ShellAppConfig
                 defRenderScale, defMaxFps, defVsyncMode,
                 defStartupUseJsonSample, defStartupSeed, defStartupLandPercent, defStartupOriginPatchRadius,
                 defLargeMapMode, defRandomizeStartupSeed, defProfileShellDraw, defMaxLandBridgeCells,
-                defTerrainUseSprites, defDecorEnabled, defTerrainWaterAnimate, defDecorUseMultimesh, defTerrainTransitionsEnabled,
+                defTerrainUseSprites, defDecorEnabled, defTerrainWaterAnimate, defDecorUseMultimesh,
                 defDecorUse3d, defKenneyAssetsRoot);
         }
 
@@ -291,7 +285,6 @@ public sealed class ShellAppConfig
             B("decor_enabled", defDecorEnabled),
             B("terrain_water_animate", defTerrainWaterAnimate),
             B("decor_use_multimesh", defDecorUseMultimesh),
-            B("terrain_transitions_enabled", defTerrainTransitionsEnabled),
             B("decor_use_3d", defDecorUse3d),
             S("kenney_assets_root", defKenneyAssetsRoot));
     }

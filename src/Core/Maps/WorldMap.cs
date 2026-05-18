@@ -32,6 +32,15 @@ public sealed class WorldMap
     /// <summary>Noise thresholds and seed used with <see cref="TileCell"/> for walkability and water rules.</summary>
     public TerrainNoiseConfig TerrainConfig { get; set; }
 
+    /// <summary>When true, procedural fill used <see cref="LandmassNoiseAlignment"/> so (0,0) targets the main landmass.</summary>
+    public bool ProceduralLandmassAligned { get; set; }
+
+    /// <summary>Noise pan applied during procedural generation (global tile coords).</summary>
+    public int ProceduralNoiseOffsetGx { get; set; }
+
+    /// <summary>Noise pan applied during procedural generation (global tile coords).</summary>
+    public int ProceduralNoiseOffsetGy { get; set; }
+
     /// <summary>
     /// Unbounded world (streaming): <see cref="Width"/> and <see cref="Height"/> are 0; floors use unbounded <see cref="FloorSlice"/> ctor.
     /// </summary>

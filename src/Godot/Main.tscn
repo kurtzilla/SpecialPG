@@ -267,7 +267,7 @@ layout_mode = 2
 min_value = 1.0
 max_value = 1024.0
 step = 1.0
-value = 14.0
+value = 42.0
 
 [node name="HudWasdBurstLabel" type="Label" parent="ShellUi/ShellHudRoot/RightPresetStack/PresetPanelRoot/Margin/VBox/MovementPresetPanel/Margin/VBox"]
 layout_mode = 2
