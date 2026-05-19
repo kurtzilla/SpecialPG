@@ -1,7 +1,7 @@
 ﻿# Shell Feature Revision Log
 
 Revision: 61
-TimestampUtc: 2026-05-18T21:04:50.3244313Z
+TimestampUtc: 2026-05-19T18:32:02.2875335Z
 
 Highlights:
 - config.ini shell tuning; Camera2D + discrete WASD sub-tile steps; zoom (wheel, =/-, keypad); upper-right world XY (2 decimals).
